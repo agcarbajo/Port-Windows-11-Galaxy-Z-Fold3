@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-10-20 — Complete project status pages
+
+- Replace the English status pointer with a full hardware overview and detailed
+  feature tables, following the Xiaomi Pad 5 guide layout.
+- Expand Spanish status with matching tables and direct language navigation.
+- Link the README directly to Project status; retain STATE.md as a technical snapshot.
+
 ## 2026-10-20 — Initial GitHub snapshot
 
 - Publish the prepared q2q UEFI, ACPI, main-touch sources/packages, PEP LMH

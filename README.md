@@ -4,7 +4,7 @@ Updated **2026-10-20**: main-display **touch, Wi-Fi and power/volume buttons
 work**, confirmed by the operator. Basic display works; **Adreno hardware
 acceleration is still in development**. The GPU completed its first real
 owned-memory command write in 225 µs, but Direct3D/DXGI and Draw/readback
-are not yet verified. See [STATE.md](STATE.md), [Spanish status](guides/Spanish/status.md)
+are not yet verified. See [Project status](guides/English/status.md), [estado en español](guides/Spanish/status.md)
 and [latest changes](CHANGELOG.md).
 
 This is a development snapshot. Installation and recovery guides linked below
