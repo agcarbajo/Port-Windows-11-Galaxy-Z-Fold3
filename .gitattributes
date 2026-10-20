@@ -1,0 +1,11 @@
+# The Mu-Silicium patch mixes CRLF (files stored with CRLF upstream) and LF hunks: keep it byte-exact.
+*.patch -text
+
+# Driver packages: keep byte-exact (catalog hashes cover these files)
+*.sys binary
+*.cat binary
+*.cer binary
+*.inf -text
+
+# Preserve the research snapshot hashes across checkouts.
+research/gpu/source/* -text

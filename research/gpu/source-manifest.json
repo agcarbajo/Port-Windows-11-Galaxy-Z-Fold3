@@ -1,0 +1,42 @@
+{
+  "date": "2026-10-20",
+  "purpose": "Research source excerpts, not a standalone build or installation package",
+  "files": [
+    {
+      "file": "source/q2q_cp_init_contract.py",
+      "sha256": "ee0b67d880c64f7795af6de74b739e040471fd8602a767441e8dce4d9e2c9a90"
+    },
+    {
+      "file": "source/q2q_gpu_cp_preflight.inc",
+      "sha256": "c4e0a131c636227663cb7fe4b28390a153c234e4fc376554fd4666dab3c23024"
+    },
+    {
+      "file": "source/q2q_gpu_cp_prepare.inc",
+      "sha256": "dddb006f3dd5db8aef50e503e2fc56923438b73175a2e42505eb10ff8f67f8b4"
+    },
+    {
+      "file": "source/q2q_gpu_cp_bootstrap.inc",
+      "sha256": "8e52452cc70c4621ba12294fede19a589c22334043bbc707f9ce484d15a52887"
+    },
+    {
+      "file": "source/q2q_gpu_cp_state.inc",
+      "sha256": "ee04f31339ebe2b0ee53b2681f0e32e92ab001e730084ad8e5e10f07beade9d6"
+    },
+    {
+      "file": "source/q2q_gpu_cp_lpac_state.inc",
+      "sha256": "3c38988f036f7853ff40f794e7e8da9904a1ef4ef544d8c4dc2bb8676db1385e"
+    },
+    {
+      "file": "source/q2q_gpu_lpac_native.inc",
+      "sha256": "b059f1f0db4edeca2fea3ca9304b79df7abe1fa317aa8b415d55114fcda53b03"
+    },
+    {
+      "file": "source/q2q_gpu_cp_lpac_domain_trial.py",
+      "sha256": "17fcfbc7f9569c60afdda752977852a86fc4d009a2df60a4912e8444f57aa7aa"
+    },
+    {
+      "file": "source/q2q_gpu_cp_secure_packet_trial.py",
+      "sha256": "3f35ad056db9d1943f818bc47dba0b202fd9e888afcada65abef8f97f17f8e3e"
+    }
+  ]
+}

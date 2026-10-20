@@ -1,0 +1,1448 @@
+diff --git a/Resources/Configs/q2q.toml b/Resources/Configs/q2q.toml
+index 4b2e1a7d..448d9175 100755
+--- a/Resources/Configs/q2q.toml
++++ b/Resources/Configs/q2q.toml
+@@ -22,4 +22,4 @@ append_dtb         = true
+ # Android Boot Image Configs
+ #
+ [boot_image]
+-header_version = 1
++header_version = 3
+diff --git a/Silicon/Qualcomm/LahainaPkg/Library/AcpiTableUpdateLib/AcpiTableUpdate.c b/Silicon/Qualcomm/LahainaPkg/Library/AcpiTableUpdateLib/AcpiTableUpdate.c
+index 11df0817..0d92558e 100644
+--- a/Silicon/Qualcomm/LahainaPkg/Library/AcpiTableUpdateLib/AcpiTableUpdate.c
++++ b/Silicon/Qualcomm/LahainaPkg/Library/AcpiTableUpdateLib/AcpiTableUpdate.c
+@@ -27,6 +27,10 @@ UpdateAcpiTables ()
+   UINT32 SIDV                            = 0;
+   UINT16 SDFE                            = 0;
+   UINT16 SIDM                            = 0;
++  EFIChipInfoFamilyType ChipFamily = 0;
++  EFIChipInfoModemType ModemSupport = 0;
++  STATIC_ASSERT (sizeof (EFIChipInfoFamilyType) == sizeof (UINT32), "ChipInfo family output ABI mismatch");
++  STATIC_ASSERT (sizeof (EFIChipInfoModemType) == sizeof (UINT32), "ChipInfo modem output ABI mismatch");
+   UINT32 SUFS                            = 0xFFFFFFFF;
+   UINT32 PUS3                            = 0x1;
+   UINT32 SUS3                            = 0xFFFFFFFF;
+@@ -75,8 +79,10 @@ UpdateAcpiTables ()
+ 
+   mChipInfoProtocol->GetChipId       (mChipInfoProtocol, (EFIChipInfoIdType *)&SOID);
+   mChipInfoProtocol->GetChipVersion  (mChipInfoProtocol, &SIDV);
+-  mChipInfoProtocol->GetChipFamily   (mChipInfoProtocol, (EFIChipInfoFamilyType *)&SDFE);
+-  mChipInfoProtocol->GetModemSupport (mChipInfoProtocol, (EFIChipInfoModemType *)&SIDM);
++  mChipInfoProtocol->GetChipFamily   (mChipInfoProtocol, &ChipFamily);
++  mChipInfoProtocol->GetModemSupport (mChipInfoProtocol, &ModemSupport);
++  SDFE = (UINT16)ChipFamily;
++  SIDM = (UINT16)ModemSupport;
+   mChipInfoProtocol->GetSerialNumber (mChipInfoProtocol, (EFIChipInfoSerialNumType *)&SOSN1);
+   mChipInfoProtocol->GetQFPROMChipId (mChipInfoProtocol, (EFIChipInfoQFPROMChipIdType *)&SOSN2);
+   mChipInfoProtocol->GetChipIdString (mChipInfoProtocol, SIDS, EFICHIPINFO_MAX_ID_LENGTH);
+diff --git a/Silicon/Qualcomm/QcomPkg/Applications/MassStorage/MassStorage.c b/Silicon/Qualcomm/QcomPkg/Applications/MassStorage/MassStorage.c
+index 8171781e..2a0a2f08 100644
+--- a/Silicon/Qualcomm/QcomPkg/Applications/MassStorage/MassStorage.c
++++ b/Silicon/Qualcomm/QcomPkg/Applications/MassStorage/MassStorage.c
+@@ -108,7 +108,10 @@ AssignStorageHandles ()
+ 
+   // Set Storage GUIDs
+   EFI_GUID StorageGuid[] = {
+-    gEfiUfsLU0Guid,
++    gEfiUfsLU0Guid,            gEfiUfsLU1Guid,
++    gEfiUfsLU2Guid,            gEfiUfsLU3Guid,
++    gEfiUfsLU4Guid,            gEfiUfsLU5Guid,
++    gEfiUfsLU6Guid,            gEfiUfsLU7Guid,
+     /*
+     gEfiUfsLU0Guid,            gEfiUfsLU1Guid,
+     gEfiUfsLU2Guid,            gEfiUfsLU3Guid,
+diff --git a/Silicon/Qualcomm/QcomPkg/Library/PlatformBootManagerLib/PlatformBootManager.c b/Silicon/Qualcomm/QcomPkg/Library/PlatformBootManagerLib/PlatformBootManager.c
+index 97c29d39..4c790101 100644
+--- a/Silicon/Qualcomm/QcomPkg/Library/PlatformBootManagerLib/PlatformBootManager.c
++++ b/Silicon/Qualcomm/QcomPkg/Library/PlatformBootManagerLib/PlatformBootManager.c
+@@ -1,7 +1,1300 @@
++#include <Protocol/EFIClock.h>
++#include <Library/DxeServicesTableLib.h>
+ #include <Library/DebugLib.h>
+ #include <Library/UefiBootServicesTableLib.h>
+ #include <Library/DeviceBootManagerLib.h>
+ #include <Library/RfsProtectionLib.h>
++#include <Library/ArmGicLib.h>
++#include <Library/BaseLib.h>
++#include <Library/IoLib.h>
++#include <Library/PcdLib.h>
++#include <Library/UefiLib.h>
++#include <Library/UefiRuntimeServicesTableLib.h>
++#include <Library/AslUpdateLib.h>
++#include <Library/MemoryAllocationLib.h>
++#include <Protocol/EFISmem.h>
++#include <Library/BaseMemoryLib.h>
++STATIC
++__attribute__((noinline))
++UINT64
++Q2qWifiTranslate (UINTN Address, UINT32 *Level)
++{
++  UINT64 Current, Saved, Result = MAX_UINT64;
++  DEBUG ((DEBUG_ERROR, "Q2qWifi AT begin address=%lx\n", (UINT64)Address));
++  __asm__ __volatile__ ("mrs %0, CurrentEL" : "=r" (Current));
++  *Level = (UINT32)(Current >> 2);
++  if (*Level != 1 && *Level != 2) {
++    return Result;
++  }
++  __asm__ __volatile__ ("mrs %0, par_el1" : "=r" (Saved));
++  if (*Level == 1) {
++    __asm__ __volatile__ ("at s1e1r, %0" :: "r" (Address) : "memory");
++  } else {
++    __asm__ __volatile__ ("at s1e2r, %0" :: "r" (Address) : "memory");
++  }
++  __asm__ __volatile__ ("isb\n\tmrs %0, par_el1" : "=r" (Result) :: "memory");
++  __asm__ __volatile__ ("msr par_el1, %0\n\tisb" :: "r" (Saved) : "memory");
++  DEBUG ((DEBUG_ERROR, "Q2qWifi AT end address=%lx EL=%u PAR=%lx\n", (UINT64)Address, *Level, Result));
++  return Result;
++}
++
++
++STATIC
++BOOLEAN
++Q2qTouchPowerAllowed (UINT8 IoConfig, UINT8 AnalogConfig, UINT8 Enable)
++{
++  return ((1500000U + (IoConfig & 31U) * 25000U) == 1800000U) &&
++         ((2700000U + (AnalogConfig & 63U) * 25000U) == 3000000U) &&
++         ((Enable & 0x19U) == 0x19U);
++}
++
++STATIC
++VOID
++Q2qPublishTouchPowerDiagnostic (VOID)
++{
++  typedef INT32 (EFIAPI *NATIVE_READ)(UINT32, UINT32, UINT32, UINT8 *);
++  typedef INT32 (EFIAPI *NATIVE_WRITE)(UINT32, UINT32, UINT32, UINT32);
++  typedef struct { UINT64 Revision; VOID *Methods[7]; } NATIVE_PROTOCOL;
++  EFI_GUID ProtocolGuid = {0xea1269e6, 0x498a, 0xe8d0, {0xa8, 0x35, 0xbd, 0x6f, 0xbb, 0xf8, 0x41, 0x39}};
++  EFI_GUID DataGuid = {0x6ef51788, 0x4962, 0x49a4, {0xa7, 0x03, 0xc2, 0x94, 0xc3, 0xf1, 0x73, 0x6e}};
++  struct {
++    UINT32 Magic, Version;
++    UINT64 LocateStatus;
++    UINT32 Flags;
++    INT32 ReadEnable, ReadIo, ReadAnalog, ReadIdentity, WriteEnable, ReadBack;
++    UINT32 IoMicrovolts, AnalogMicrovolts;
++    UINT8 Before, After, IoConfig, AnalogConfig, Identity, Reserved[3];
++    UINT32 Trial;
++  } Data = {0x50543251, 1, 0, 0, -2, -2, -2, -2, -2, -2, 0, 0, 0, 0, 0, 0, 0, {0}, 1};
++  CONST UINTN Methods[] = {0x1438, 0x1450, 0x1468, 0x1480, 0x1498, 0x14b0, 0x14c8};
++  CONST UINT64 ReadCode[] = {0xf9000bfba9ba7bfdULL, 0xa90267fa910003fdULL};
++  CONST UINT64 WriteCode[] = {0xa90157f6a9bd7bfdULL, 0xa9024ff4910003fdULL};
++  CONST UINT64 GetCode[] = {0xf9000bf3a9be7bfdULL, 0xaa0303f3910003fdULL};
++  NATIVE_PROTOCOL *Protocol = NULL;
++  NATIVE_READ Read;
++  NATIVE_WRITE Write;
++  UINTN Base, Index, Pe, Descriptor;
++  UINT64 Channel;
++  UINT16 Channels;
++  UINT8 Wanted;
++  EFI_STATUS Status;
++
++  if (AsciiStrCmp ((CONST CHAR8 *)PcdGetPtr (PcdSmbiosSystemRetailModel), "q2q") != 0) {
++    return;
++  }
++  Status = gBS->LocateProtocol (&ProtocolGuid, NULL, (VOID **)&Protocol);
++  Data.LocateStatus = (UINT64)Status;
++  if (EFI_ERROR (Status) || Protocol == NULL) {
++    goto Publish;
++  }
++  Data.Flags |= 1U;
++  Data.Reserved[0] = 1;
++  if (Protocol->Revision != 1 || (UINTN)Protocol < 0x90b8) {
++    goto Publish;
++  }
++  Base = (UINTN)Protocol - 0x90b8;
++  for (Index = 0; Index < ARRAY_SIZE (Methods); Index++) {
++    Data.Reserved[0] = (UINT8)(2 + Index);
++    if ((UINTN)Protocol->Methods[Index] != Base + Methods[Index]) {
++      goto Publish;
++    }
++  }
++  Data.Reserved[0] = 9;
++  if (ReadUnaligned16 ((CONST UINT16 *)Base) != 0x5a4d) {
++    goto Publish;
++  }
++  Pe = ReadUnaligned32 ((CONST UINT32 *)(Base + 0x3c));
++  Data.Reserved[0] = 10;
++  Data.Reserved[1] = (UINT8)Pe;
++  Data.Reserved[2] = (UINT8)(Pe >> 8);
++  if (Pe != 0xe58) {
++    goto Publish;
++  }
++  Data.Reserved[0] = 11;
++  if (ReadUnaligned32 ((CONST UINT32 *)(Base + Pe)) != 0x00004550) {
++    goto Publish;
++  }
++  Data.Reserved[0] = 12;
++  if (ReadUnaligned16 ((CONST UINT16 *)(Base + Pe + 4)) != 0xaa64) {
++    goto Publish;
++  }
++  Data.Reserved[0] = 13;
++  if (ReadUnaligned32 ((CONST UINT32 *)(Base + Pe + 80)) < 0x9700 ||
++      ReadUnaligned32 ((CONST UINT32 *)(Base + Pe + 80)) > 0x20000) {
++    goto Publish;
++  }
++  Data.Reserved[0] = 14;
++  if (CompareMem ((CONST VOID *)(Base + 0x14c8), GetCode, sizeof (GetCode))) {
++    goto Publish;
++  }
++  Data.Reserved[0] = 15;
++  if (CompareMem ((CONST VOID *)(Base + 0x5dc4), ReadCode, sizeof (ReadCode))) {
++    goto Publish;
++  }
++  Data.Reserved[0] = 16;
++  if (CompareMem ((CONST VOID *)(Base + 0x5acc), WriteCode, sizeof (WriteCode))) {
++    goto Publish;
++  }
++  Data.Reserved[0] = 0;
++  Data.Flags |= 2U;
++  Channel = ReadUnaligned64 ((CONST UINT64 *)(Base + 0x9450));
++  Channels = ReadUnaligned16 ((CONST UINT16 *)(Base + 0x96a0));
++  Data.Reserved[0] = 17;
++  if (!Channels || Channels > 14) {
++    goto Publish;
++  }
++  Data.Reserved[0] = 18;
++  if (Channel >= Channels) {
++    goto Publish;
++  }
++  Data.Reserved[0] = 19;
++  if (!(*(CONST UINT8 *)(Base + 0x969e) & 1U)) {
++    goto Publish;
++  }
++  Descriptor = Base + 0x9480 + (UINTN)Channel * 36;
++  Data.Reserved[0] = 20;
++  if (CompareMem ((CONST VOID *)Descriptor, "s2dos05_i2c_a", sizeof ("s2dos05_i2c_a"))) {
++    goto Publish;
++  }
++  Data.Reserved[0] = 21;
++  if (ReadUnaligned32 ((CONST UINT32 *)(Descriptor + 16)) != 77) {
++    goto Publish;
++  }
++  Data.Reserved[0] = 22;
++  if (ReadUnaligned32 ((CONST UINT32 *)(Descriptor + 20)) != 76) {
++    goto Publish;
++  }
++  Data.Reserved[0] = 0;
++  Data.Flags |= 4U;
++  Read = (NATIVE_READ)(Base + 0x5dc4);
++  Write = (NATIVE_WRITE)(Base + 0x5acc);
++  {
++    struct {
++      UINT32 Magic, Flags;
++      INT32 Results[5];
++      UINT8 Values[5], Reserved[3];
++    } Wifi = {0x46573251, 7, {-2, -2, -2, -2, -2}, {0}, {0}};
++    CONST UINT32 Registers[] = {0, 0x0b, 0x0c, 0x0d, 0x0e};
++    for (Index = 0; Index < ARRAY_SIZE (Registers); Index++) {
++      Wifi.Results[Index] = Read ((UINT32)Channel, 0xb2, Registers[Index], &Wifi.Values[Index]);
++    }
++    gRT->SetVariable (L"Q2qWifiPowerDiag", &DataGuid,
++      EFI_VARIABLE_BOOTSERVICE_ACCESS | EFI_VARIABLE_RUNTIME_ACCESS,
++      sizeof (Wifi), &Wifi);
++  }
++  {
++    struct {
++      UINT32 Magic, Flags;
++      INT32 WriteResults[4], ReadResults[4];
++      UINT8 Before[4], After[4], Reserved[4];
++    } Rail = {0x52573251, 0, {-2, -2, -2, -2}, {-2, -2, -2, -2}, {0}, {0}, {0}};
++    CONST UINT32 Registers[] = {0x0c, 0x0e, 0x0b, 0x0d};
++    CONST UINT8 Targets[] = {0x62, 0x98, 0xd8, 0xd8};
++    UINT8 Id = 0xff;
++    INT32 Initial[5];
++    Initial[0] = Read ((UINT32)Channel, 0xb2, 0, &Id);
++    for (Index = 0; Index < ARRAY_SIZE (Registers); Index++) {
++      Initial[Index + 1] = Read ((UINT32)Channel, 0xb2, Registers[Index], &Rail.Before[Index]);
++    }
++    if (!Initial[0] && !Initial[1] && !Initial[2] && !Initial[3] && !Initial[4]) {
++      Rail.Flags |= 1U;
++      if (Id == 0 && (Rail.Before[0] == 0xc0 || Rail.Before[0] == 0x62) &&
++          (Rail.Before[1] == 0x40 || Rail.Before[1] == 0x98) &&
++          (Rail.Before[2] == 0x18 || Rail.Before[2] == 0x58 || Rail.Before[2] == 0xd8) &&
++          (Rail.Before[3] == 0x18 || Rail.Before[3] == 0x58 || Rail.Before[3] == 0xd8)) {
++        Rail.Flags |= 2U;
++        for (Index = 0; Index < ARRAY_SIZE (Registers); Index++) {
++          Rail.WriteResults[Index] = Rail.Before[Index] == Targets[Index] ? 0 :
++            Write ((UINT32)Channel, 0xb2, Registers[Index], Targets[Index]);
++          if (Rail.WriteResults[Index]) {
++            break;
++          }
++          Rail.ReadResults[Index] = Read ((UINT32)Channel, 0xb2, Registers[Index], &Rail.After[Index]);
++          if (Rail.ReadResults[Index] || Rail.After[Index] != Targets[Index]) {
++            break;
++          }
++        }
++        if (Index == ARRAY_SIZE (Registers)) {
++          Rail.Flags |= 4U;
++          gBS->Stall (100);
++        }
++      }
++    }
++    gRT->SetVariable (L"Q2qWifiRailDiag", &DataGuid,
++      EFI_VARIABLE_BOOTSERVICE_ACCESS | EFI_VARIABLE_RUNTIME_ACCESS,
++      sizeof (Rail), &Rail);
++  }
++  {
++    struct {
++      UINT32 Magic, Version;
++      EFI_STATUS LocateStatus;
++      UINT64 ProtocolVersion;
++      EFI_STATUS GcdStatus;
++      UINT64 GcdBase, GcdLength;
++      UINT32 GcdType, Count;
++      struct {
++        EFI_STATUS LookupStatus, EnabledStatus, OnStatus;
++        UINTN Id;
++        UINT32 Hertz;
++        BOOLEAN Enabled, On;
++        UINT8 Reserved[2];
++        EFI_STATUS FrequencyStatus;
++      } Clocks[8];
++    } Diag;
++    EFI_GUID ClockGuid = EFI_CLOCK_PROTOCOL_GUID;
++    EFI_CLOCK_PROTOCOL *Clock = NULL;
++    EFI_GCD_MEMORY_SPACE_DESCRIPTOR Gcc;
++    STATIC_ASSERT (sizeof (Diag) == 440, "Wi-Fi clock report ABI mismatch");
++    CONST CHAR8 *Names[] = {"gcc_pcie_0_pipe_clk", "gcc_pcie_0_aux_clk",
++      "gcc_pcie_0_cfg_ahb_clk", "gcc_pcie_0_mstr_axi_clk", "gcc_pcie_0_slv_axi_clk",
++      "gcc_pcie_0_slv_q2a_axi_clk", "gcc_aggre_noc_pcie_0_axi_clk", "gcc_aggre_noc_pcie_tbu_clk"};
++    ZeroMem (&Diag, sizeof (Diag));
++    ZeroMem (&Gcc, sizeof (Gcc));
++    Diag.Magic = 0x43573251;
++    Diag.Version = 1;
++    Diag.Count = ARRAY_SIZE (Names);
++    Diag.GcdStatus = gDS->GetMemorySpaceDescriptor (0x100000, &Gcc);
++    if (!EFI_ERROR (Diag.GcdStatus)) {
++      Diag.GcdBase = Gcc.BaseAddress;
++      Diag.GcdLength = Gcc.Length;
++      Diag.GcdType = Gcc.GcdMemoryType;
++    }
++    Diag.LocateStatus = gBS->LocateProtocol (&ClockGuid, NULL, (VOID **)&Clock);
++    if (!EFI_ERROR (Diag.LocateStatus) && Clock != NULL) {
++      Diag.ProtocolVersion = Clock->Version;
++    }
++    for (Index = 0; Index < ARRAY_SIZE (Names); Index++) {
++      Diag.Clocks[Index].LookupStatus = EFI_NOT_READY;
++      Diag.Clocks[Index].EnabledStatus = EFI_NOT_READY;
++      Diag.Clocks[Index].OnStatus = EFI_NOT_READY;
++      Diag.Clocks[Index].FrequencyStatus = EFI_NOT_READY;
++      if (!EFI_ERROR (Diag.LocateStatus) && Clock != NULL && Clock->Version == EFI_CLOCK_PROTOCOL_VERSION &&
++          !EFI_ERROR (Diag.GcdStatus) && Gcc.GcdMemoryType == EfiGcdMemoryTypeMemoryMappedIo &&
++          Gcc.BaseAddress <= 0x100000 && Gcc.Length >= 0x1f0000 && Gcc.BaseAddress + Gcc.Length >= 0x2f0000 &&
++          Clock->GetClockID != NULL && Clock->IsClockEnabled != NULL && Clock->IsClockOn != NULL && Clock->GetClockFreqHz != NULL) {
++        Diag.Clocks[Index].LookupStatus = Clock->GetClockID (Clock, Names[Index], &Diag.Clocks[Index].Id);
++        if (!EFI_ERROR (Diag.Clocks[Index].LookupStatus)) {
++          Diag.Clocks[Index].EnabledStatus = Clock->IsClockEnabled (Clock, Diag.Clocks[Index].Id, &Diag.Clocks[Index].Enabled);
++          Diag.Clocks[Index].OnStatus = Clock->IsClockOn (Clock, Diag.Clocks[Index].Id, &Diag.Clocks[Index].On);
++          Diag.Clocks[Index].FrequencyStatus = Clock->GetClockFreqHz (Clock, Diag.Clocks[Index].Id, &Diag.Clocks[Index].Hertz);
++        }
++      }
++    }
++    {
++      struct {
++        UINT32 Magic, Version;
++        EFI_STATUS DomainLookup, DomainEnable;
++        UINTN DomainId;
++        UINT32 Count, Reserved;
++        struct {
++          EFI_STATUS EnableStatus, EnabledStatus, OnStatus;
++          UINTN Id;
++          BOOLEAN BeforeEnabled, BeforeOn, AfterEnabled, AfterOn;
++          UINT32 Reserved;
++        } Clocks[7];
++      } Vote;
++      STATIC_ASSERT (sizeof (Vote) == 320, "Wi-Fi clock vote report ABI mismatch");
++      ZeroMem (&Vote, sizeof (Vote));
++      Vote.Magic = 0x56573251;
++      Vote.Version = 1;
++      Vote.Count = 7;
++      Vote.DomainLookup = EFI_NOT_READY;
++      Vote.DomainEnable = EFI_NOT_READY;
++      for (Index = 0; Index < 7; Index++) {
++        Vote.Clocks[Index].EnableStatus = EFI_NOT_READY;
++        Vote.Clocks[Index].EnabledStatus = EFI_NOT_READY;
++        Vote.Clocks[Index].OnStatus = EFI_NOT_READY;
++        Vote.Clocks[Index].Id = Diag.Clocks[Index + 1].Id;
++        Vote.Clocks[Index].BeforeEnabled = Diag.Clocks[Index + 1].Enabled;
++        Vote.Clocks[Index].BeforeOn = Diag.Clocks[Index + 1].On;
++      }
++      if (!EFI_ERROR (Diag.LocateStatus) && Clock != NULL && Clock->Version == EFI_CLOCK_PROTOCOL_VERSION &&
++          !EFI_ERROR (Diag.GcdStatus) && Gcc.GcdMemoryType == EfiGcdMemoryTypeMemoryMappedIo &&
++          Gcc.BaseAddress <= 0x100000 && Gcc.Length >= 0x1f0000 && Gcc.BaseAddress + Gcc.Length >= 0x2f0000 &&
++          Clock->GetClockPowerDomainID != NULL && Clock->EnableClockPowerDomain != NULL && Clock->EnableClock != NULL) {
++        BOOLEAN Ready = TRUE;
++        for (Index = 0; Index < ARRAY_SIZE (Names); Index++) {
++          Ready = Ready && !EFI_ERROR (Diag.Clocks[Index].LookupStatus) &&
++            !EFI_ERROR (Diag.Clocks[Index].EnabledStatus) && !EFI_ERROR (Diag.Clocks[Index].OnStatus);
++        }
++        if (Ready) {
++          Vote.DomainLookup = Clock->GetClockPowerDomainID (Clock, "gcc_pcie_0_gdsc", &Vote.DomainId);
++          if (!EFI_ERROR (Vote.DomainLookup)) {
++            Vote.DomainEnable = Clock->EnableClockPowerDomain (Clock, Vote.DomainId);
++          }
++          if (!EFI_ERROR (Vote.DomainEnable)) {
++            for (Index = 0; Index < 7; Index++) {
++              Vote.Clocks[Index].EnableStatus = Vote.Clocks[Index].BeforeEnabled ? EFI_SUCCESS :
++                Clock->EnableClock (Clock, Vote.Clocks[Index].Id);
++              if (EFI_ERROR (Vote.Clocks[Index].EnableStatus)) {
++                break;
++              }
++              Vote.Clocks[Index].EnabledStatus = Clock->IsClockEnabled (Clock, Vote.Clocks[Index].Id, &Vote.Clocks[Index].AfterEnabled);
++              Vote.Clocks[Index].OnStatus = Clock->IsClockOn (Clock, Vote.Clocks[Index].Id, &Vote.Clocks[Index].AfterOn);
++              if (EFI_ERROR (Vote.Clocks[Index].EnabledStatus) || EFI_ERROR (Vote.Clocks[Index].OnStatus) ||
++                  !Vote.Clocks[Index].AfterEnabled || !Vote.Clocks[Index].AfterOn) {
++                break;
++              }
++            }
++          }
++        }
++      }
++      {
++        struct {
++          UINT32 Magic, Version, Flags, Count;
++          UINT64 Addresses[8];
++          UINT32 Values[8];
++        } Reset;
++        CONST UINTN Registers[] = {0x16b000, 0x16b004, 0x16c014, 0x16c020,
++          0x16c01c, 0x16c028, 0x16f00c, 0x16f010};
++        STATIC_ASSERT (sizeof (Reset) == 112, "Wi-Fi GCC snapshot ABI mismatch");
++        ZeroMem (&Reset, sizeof (Reset));
++        Reset.Magic = 0x52533251;
++        Reset.Version = 1;
++        Reset.Count = ARRAY_SIZE (Registers);
++        BOOLEAN Ready = !EFI_ERROR (Vote.DomainLookup) && !EFI_ERROR (Vote.DomainEnable);
++        for (Index = 0; Index < 7; Index++) {
++          Ready = Ready && !EFI_ERROR (Vote.Clocks[Index].EnableStatus) &&
++            !EFI_ERROR (Vote.Clocks[Index].EnabledStatus) && !EFI_ERROR (Vote.Clocks[Index].OnStatus) &&
++            Vote.Clocks[Index].AfterEnabled && Vote.Clocks[Index].AfterOn;
++        }
++        for (Index = 0; Index < ARRAY_SIZE (Registers); Index++) {
++          Reset.Addresses[Index] = Registers[Index];
++        }
++        if (Ready && !EFI_ERROR (Diag.GcdStatus) && Gcc.GcdMemoryType == EfiGcdMemoryTypeMemoryMappedIo &&
++            Gcc.BaseAddress <= 0x100000 && Gcc.Length >= 0x1f0000 && Gcc.BaseAddress + Gcc.Length >= 0x2f0000) {
++          Reset.Flags |= 1U;
++          for (Index = 0; Index < ARRAY_SIZE (Registers); Index++) {
++            Reset.Values[Index] = MmioRead32 (Registers[Index]);
++          }
++          Reset.Flags |= 2U;
++        }
++        gRT->SetVariable (L"Q2qWifiGccDiag", &DataGuid,
++          EFI_VARIABLE_BOOTSERVICE_ACCESS | EFI_VARIABLE_RUNTIME_ACCESS,
++          sizeof (Reset), &Reset);
++      }
++      {
++        struct {
++          UINT32 Magic, Version, Count, Flags;
++          struct {
++            UINT64 Base, Length;
++            EFI_STATUS Descriptor, Add, Attributes;
++            UINT32 BeforeType, Flags;
++          } Regions[2];
++        } Apply;
++        CONST UINT64 Bases[] = {0x1c00000, 0x1c06000};
++        CONST UINT64 Lengths[] = {0x3000, 0x2000};
++        STATIC_ASSERT (sizeof (Apply) == 112, "Wi-Fi map application ABI mismatch");
++        ZeroMem (&Apply, sizeof (Apply));
++        Apply.Magic = 0x41573251;
++        Apply.Version = 1;
++        Apply.Count = 2;
++        BOOLEAN Ready = !EFI_ERROR (Vote.DomainLookup) && !EFI_ERROR (Vote.DomainEnable) &&
++          gDS->AddMemorySpace != NULL && gDS->SetMemorySpaceAttributes != NULL;
++        for (Index = 0; Index < 7; Index++) {
++          Ready = Ready && !EFI_ERROR (Vote.Clocks[Index].EnableStatus) &&
++            !EFI_ERROR (Vote.Clocks[Index].EnabledStatus) && !EFI_ERROR (Vote.Clocks[Index].OnStatus) &&
++            Vote.Clocks[Index].AfterEnabled && Vote.Clocks[Index].AfterOn;
++        }
++        for (Index = 0; Index < 2; Index++) {
++          Apply.Regions[Index].Base = Bases[Index];
++          Apply.Regions[Index].Length = Lengths[Index];
++          Apply.Regions[Index].Descriptor = EFI_NOT_READY;
++          Apply.Regions[Index].Add = EFI_NOT_READY;
++          Apply.Regions[Index].Attributes = EFI_NOT_READY;
++        }
++        if (Ready) {
++          for (Index = 0; Index < 2; Index++) {
++            EFI_GCD_MEMORY_SPACE_DESCRIPTOR Region;
++            ZeroMem (&Region, sizeof (Region));
++            Apply.Regions[Index].Descriptor = gDS->GetMemorySpaceDescriptor (Bases[Index], &Region);
++            if (EFI_ERROR (Apply.Regions[Index].Descriptor)) {
++              break;
++            }
++            Apply.Regions[Index].BeforeType = Region.GcdMemoryType;
++            if (Region.GcdMemoryType != EfiGcdMemoryTypeNonExistent ||
++                Region.BaseAddress > Bases[Index] || Region.Length < Lengths[Index] ||
++                Bases[Index] - Region.BaseAddress > Region.Length - Lengths[Index]) {
++              break;
++            }
++            Apply.Regions[Index].Flags |= 1U;
++            Apply.Regions[Index].Add = gDS->AddMemorySpace (
++              EfiGcdMemoryTypeMemoryMappedIo, Bases[Index], Lengths[Index], EFI_MEMORY_UC | EFI_MEMORY_XP);
++            if (EFI_ERROR (Apply.Regions[Index].Add)) {
++              break;
++            }
++            Apply.Regions[Index].Flags |= 2U;
++            Apply.Regions[Index].Attributes = gDS->SetMemorySpaceAttributes (
++              Bases[Index], Lengths[Index], EFI_MEMORY_UC | EFI_MEMORY_XP);
++            if (EFI_ERROR (Apply.Regions[Index].Attributes)) {
++              break;
++            }
++            Apply.Regions[Index].Flags |= 4U;
++          }
++        }
++        Apply.Flags = Apply.Regions[0].Flags == 7 && Apply.Regions[1].Flags == 7;
++        gRT->SetVariable (L"Q2qWifiMapApply", &DataGuid,
++          EFI_VARIABLE_BOOTSERVICE_ACCESS | EFI_VARIABLE_RUNTIME_ACCESS, sizeof (Apply), &Apply);
++      }
++      {
++        struct {
++          UINT32 Magic, Version, Level, Count;
++          struct {
++            UINT64 Address, Par;
++            EFI_STATUS GcdStatus;
++            UINT64 GcdBase, GcdLength;
++            UINT32 GcdType, Flags;
++          } Regions[8];
++        } Mapping;
++        CONST UINTN Addresses[] = {0x16b004, 0x1c00040, 0x1c001b0, 0x1c06214,
++          0x1c06240, 0x1c06200, 0x1c06244, 0x60000000};
++        STATIC_ASSERT (sizeof (Mapping) == 400, "Wi-Fi translation report ABI mismatch");
++        ZeroMem (&Mapping, sizeof (Mapping));
++        Mapping.Magic = 0x4d573251;
++        Mapping.Version = 1;
++        Mapping.Count = ARRAY_SIZE (Addresses);
++        for (Index = 0; Index < ARRAY_SIZE (Addresses); Index++) {
++          EFI_GCD_MEMORY_SPACE_DESCRIPTOR Region;
++          ZeroMem (&Region, sizeof (Region));
++          Mapping.Regions[Index].Address = Addresses[Index];
++          Mapping.Regions[Index].Par = Q2qWifiTranslate (Addresses[Index], &Mapping.Level);
++          if (Mapping.Level == 1 || Mapping.Level == 2) {
++            Mapping.Regions[Index].Flags |= 1U;
++          }
++          Mapping.Regions[Index].GcdStatus = gDS->GetMemorySpaceDescriptor (Addresses[Index], &Region);
++          DEBUG ((DEBUG_ERROR, "Q2qWifi GCD end address=%lx status=%r\n", (UINT64)Addresses[Index], Mapping.Regions[Index].GcdStatus));
++          if (!EFI_ERROR (Mapping.Regions[Index].GcdStatus)) {
++            Mapping.Regions[Index].GcdBase = Region.BaseAddress;
++            Mapping.Regions[Index].GcdLength = Region.Length;
++            Mapping.Regions[Index].GcdType = Region.GcdMemoryType;
++            if (Region.GcdMemoryType == EfiGcdMemoryTypeMemoryMappedIo &&
++                Region.BaseAddress <= Addresses[Index] && Region.Length >= 4 &&
++                Addresses[Index] - Region.BaseAddress <= Region.Length - 4) {
++              Mapping.Regions[Index].Flags |= 2U;
++            }
++          }
++        }
++        gRT->SetVariable (L"Q2qWifiMappingDiag", &DataGuid,
++          EFI_VARIABLE_BOOTSERVICE_ACCESS | EFI_VARIABLE_RUNTIME_ACCESS,
++          sizeof (Mapping), &Mapping);
++        {
++          struct {
++            UINT32 Magic, Version, Count, Flags;
++            UINT64 Addresses[6];
++            UINT32 Values[6];
++          } Regs;
++          STATIC_ASSERT (sizeof (Regs) == 88, "Wi-Fi PCIe register snapshot ABI mismatch");
++          BOOLEAN Ready = !EFI_ERROR (Vote.DomainLookup) && !EFI_ERROR (Vote.DomainEnable);
++          ZeroMem (&Regs, sizeof (Regs));
++          Regs.Magic = 0x50573251;
++          Regs.Version = 1;
++          Regs.Count = 6;
++          for (Index = 0; Index < 7; Index++) {
++            Ready = Ready && !EFI_ERROR (Vote.Clocks[Index].EnableStatus) &&
++              !EFI_ERROR (Vote.Clocks[Index].EnabledStatus) && !EFI_ERROR (Vote.Clocks[Index].OnStatus) &&
++              Vote.Clocks[Index].AfterEnabled && Vote.Clocks[Index].AfterOn;
++          }
++          for (Index = 0; Index < 6; Index++) {
++            Regs.Addresses[Index] = Addresses[Index + 1];
++            Ready = Ready && Mapping.Regions[Index + 1].Flags == 3 &&
++              Mapping.Regions[Index + 1].Par == ((Addresses[Index + 1] & ~0xfffULL) | 0xb00);
++          }
++          if (Ready) {
++            Regs.Flags |= 1U;
++            for (Index = 0; Index < 6; Index++) {
++              Regs.Values[Index] = MmioRead32 (Addresses[Index + 1]);
++            }
++            Regs.Flags |= 2U;
++          }
++          gRT->SetVariable (L"Q2qWifiPcieRegs", &DataGuid,
++            EFI_VARIABLE_BOOTSERVICE_ACCESS | EFI_VARIABLE_RUNTIME_ACCESS, sizeof (Regs), &Regs);
++          {
++            struct {
++              UINT32 Magic, Version, Stage, Flags;
++              UINT32 GpioBefore[8], GpioAfter[8];
++              EFI_STATUS Status[8];
++              UINT32 RchngHz, PipeMuxBefore, PipeMuxAfter, PhyPolls, PhyStatus, LtssmPolls, LtssmFinal, ClockOn;
++              UINT32 Parf[6];
++              UINT32 LtssmTrace[8];
++            } Up;
++            CONST UINT32 Pins[] = {64, 94, 95, 96};
++            CONST UINT32 ParfOffsets[] = {0x0, 0x40, 0x174, 0x1a8, 0x1000, 0x1b0};
++            CONST UINT32 PhySequence[] = {0x240, 0x3, 0x94, 0x8, 0x154, 0x34, 0x16c, 0x8, 0x58, 0xf, 0xa4, 0x42, 0x110, 0x24, 0x11c, 0x3, 0x118, 0xb4, 0x10c, 0x2, 0x1bc, 0x11, 0xbc, 0x82, 0xd4, 0x3, 0xd0, 0x55, 0xcc, 0x55, 0xb0, 0x1a, 0xac, 0xa, 0xc4, 0x68, 0xe0, 0x2, 0xdc, 0xaa, 0xd8, 0xab, 0xb8, 0x34, 0xb4, 0x14, 0x158, 0x1, 0x74, 0x6, 0x7c, 0x16, 0x84, 0x36, 0x78, 0x6, 0x80, 0x16, 0x88, 0x36, 0x1b0, 0x1e, 0x1ac, 0xca, 0x1b8, 0x18, 0x1b4, 0xa2, 0x50, 0x7, 0x10, 0x1, 0x1c, 0x31, 0x20, 0x1, 0x24, 0xde, 0x28, 0x7, 0x30, 0x4c, 0x34, 0x6, 0xee4, 0x20, 0xe84, 0x75, 0xe90, 0x3f, 0x115c, 0x7f, 0x1160, 0xff, 0x1164, 0xbf, 0x1168, 0x3f, 0x116c, 0xd8, 0x1170, 0xdc, 0x1174, 0xdc, 0x1178, 0x5c, 0x117c, 0x34, 0x1180, 0xa6, 0x1190, 0x34, 0x10d8, 0x7, 0xe3c, 0x1d, 0xe40, 0xc, 0x10dc, 0x0, 0x104c, 0x8, 0x1050, 0x8, 0x1044, 0xf0, 0x11a4, 0x38, 0x10cc, 0xf0, 0x694, 0x0, 0x654, 0x0, 0x6a8, 0xf, 0x48, 0x90, 0x620, 0xc1, 0x388, 0x77, 0x398, 0xb, 0x2dc, 0x5, 0x338, 0x9, 0x200, 0x0, 0x244, 0x3};
++            CONST CHAR8 *UpNames[] = {"gcc_pcie_0_clkref_en", "gcc_pcie0_phy_rchng_clk", "gcc_pcie_0_pipe_clk"};
++            UINTN UpIds[3] = {0, 0, 0};
++            UINTN Step;
++            UINT32 Value = 0;
++            BOOLEAN On = FALSE;
++            STATIC_ASSERT (sizeof (Up) == 232, "Wi-Fi PCIe bring-up report ABI mismatch");
++            ZeroMem (&Up, sizeof (Up));
++            Up.Magic = 0x42573251;
++            Up.Version = 1;
++            for (Step = 0; Step < 8; Step++) {
++              Up.Status[Step] = EFI_NOT_READY;
++            }
++            for (Step = 0; Step < 4; Step++) {
++              Up.GpioBefore[Step * 2] = MmioRead32 (0x0f100000 + Pins[Step] * 0x1000);
++              Up.GpioBefore[Step * 2 + 1] = MmioRead32 (0x0f100000 + Pins[Step] * 0x1000 + 4);
++            }
++            if (Regs.Flags == 3 && Regs.Values[1] == 0 && Regs.Values[4] == 1 && Regs.Values[5] == 0 &&
++                Clock->SetClockFreqHz != NULL && Clock->IsClockOn != NULL) {
++              Up.Stage = 1;
++              MmioWrite32 (0x0f100000 + 64 * 0x1000 + 4, 2);
++              MmioWrite32 (0x0f100000 + 64 * 0x1000, 0x3c3);
++              MmioWrite32 (0x0f100000 + 94 * 0x1000 + 4, 0);
++              MmioWrite32 (0x0f100000 + 94 * 0x1000, 0x201);
++              gBS->Stall (100000);
++              Up.Stage = 2;
++              for (Step = 0; Step < 2; Step++) {
++                Up.Status[Step * 2] = Clock->GetClockID (Clock, UpNames[Step], &UpIds[Step]);
++                if (EFI_ERROR (Up.Status[Step * 2])) {
++                  break;
++                }
++                if (Step == 1) {
++                  Up.Status[7] = Clock->SetClockFreqHz (Clock, UpIds[Step], 100000000, EFI_CLOCK_FREQUENCY_HZ_AT_LEAST, &Up.RchngHz);
++                }
++                Up.Status[Step * 2 + 1] = Clock->EnableClock (Clock, UpIds[Step]);
++                if (EFI_ERROR (Up.Status[Step * 2 + 1]) || EFI_ERROR (Clock->IsClockOn (Clock, UpIds[Step], &On)) || !On) {
++                  break;
++                }
++                Up.ClockOn |= 1U << Step;
++              }
++              if (Up.ClockOn == 3) {
++                Up.Stage = 3;
++                MmioWrite32 (0x16b000, 1);
++                gBS->Stall (1000);
++                MmioWrite32 (0x16b000, 0);
++                MmioWrite32 (0x16c01c, 1);
++                gBS->Stall (1000);
++                MmioWrite32 (0x16c01c, 0);
++                gBS->Stall (1000);
++                Up.Stage = 4;
++                for (Step = 0; Step < 6; Step++) {
++                  Up.Parf[Step] = MmioRead32 (0x1c00000 + ParfOffsets[Step]);
++                }
++                MmioWrite32 (0x1c00000 + 0x1000, 4);
++                MmioAnd32 (0x1c00000 + 0x40, ~1U);
++                MmioWrite32 (0x1c00000 + 0x168, 0);
++                MmioAnd32 (0x1c00000 + 0x0, ~BIT29);
++                MmioOr32 (0x1c00000 + 0x174, BIT4);
++                MmioOr32 (0x1c00000 + 0x1a8, BIT31);
++                Up.Stage = 5;
++                for (Step = 0; Step < ARRAY_SIZE (PhySequence); Step += 2) {
++                  MmioWrite32 (0x1c06000 + PhySequence[Step], PhySequence[Step + 1]);
++                }
++                Up.Stage = 6;
++                Up.Status[4] = Clock->GetClockID (Clock, UpNames[2], &UpIds[2]);
++                if (!EFI_ERROR (Up.Status[4])) {
++                  Up.Status[5] = Clock->EnableClock (Clock, UpIds[2]);
++                }
++                for (Up.PhyPolls = 0; Up.PhyPolls < 400; Up.PhyPolls++) {
++                  Up.PhyStatus = MmioRead32 (0x1c06214);
++                  if (!(Up.PhyStatus & BIT6)) {
++                    break;
++                  }
++                  gBS->Stall (50);
++                }
++                if (!EFI_ERROR (Up.Status[4]) && !EFI_ERROR (Clock->IsClockOn (Clock, UpIds[2], &On)) && On) {
++                  Up.ClockOn |= 4U;
++                }
++                Up.PipeMuxBefore = MmioRead32 (0x16b054);
++                if (!(Up.PhyStatus & BIT6)) {
++                  Up.Stage = 7;
++                  if ((Up.PipeMuxBefore & 3) == 2) {
++                    MmioWrite32 (0x16b054, Up.PipeMuxBefore & ~3U);
++                  }
++                  Up.PipeMuxAfter = MmioRead32 (0x16b054);
++                  gBS->Stall (1000);
++                  MmioWrite32 (0x0f100000 + 94 * 0x1000 + 4, 2);
++                  gBS->Stall (1000);
++                  Up.Stage = 8;
++                  MmioOr32 (0x1c00000 + 0x1b0, BIT8);
++                  for (Up.LtssmPolls = 0; Up.LtssmPolls < 2000; Up.LtssmPolls++) {
++                    Value = MmioRead32 (0x1c00000 + 0x1b0);
++                    if (Up.Flags < 8 && (Up.Flags == 0 || Up.LtssmTrace[Up.Flags - 1] != (Value & 0x3f))) {
++                      Up.LtssmTrace[Up.Flags++] = Value & 0x3f;
++                    }
++                    if ((Value & 0x3f) == 0x11) {
++                      break;
++                    }
++                    gBS->Stall (100);
++                  }
++                  Up.LtssmFinal = Value;
++                  if ((Value & 0x3f) == 0x11) {
++                    Up.Stage = 9;
++                  }
++                }
++              }
++            }
++            for (Step = 0; Step < 4; Step++) {
++              Up.GpioAfter[Step * 2] = MmioRead32 (0x0f100000 + Pins[Step] * 0x1000);
++              Up.GpioAfter[Step * 2 + 1] = MmioRead32 (0x0f100000 + Pins[Step] * 0x1000 + 4);
++            }
++            gRT->SetVariable (L"Q2qWifiPcieBringup", &DataGuid,
++              EFI_VARIABLE_BOOTSERVICE_ACCESS | EFI_VARIABLE_RUNTIME_ACCESS, sizeof (Up), &Up);
++            {
++              struct {
++                UINT32 Magic, Version, Stage, Flags;
++                EFI_STATUS Status[4];
++                UINT32 Rp[6], RpLink;
++                UINT32 ParfBefore[4], ParfAfter[4];
++                UINT32 Atu[8];
++                UINT32 Block[10];
++                UINT32 Probe[6];
++                UINT32 Reserved;
++              } Ecam;
++              CONST UINT8 Mcfg[] = {0x4d, 0x43, 0x46, 0x47, 0x3c, 0x00, 0x00, 0x00, 0x01, 0x9b, 0x51, 0x43, 0x4f, 0x4d, 0x20, 0x20, 0x51, 0x43, 0x4f, 0x4d, 0x45, 0x44, 0x4b, 0x32, 0x50, 0x83, 0x00, 0x00, 0x51, 0x43, 0x4f, 0x4d, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x60, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00};
++              CONST UINT32 EcamParf[] = {0x350, 0x358, 0x0, 0x1b0};
++              CONST UINT32 AtuOffsets[] = {0x0, 0x4, 0x8, 0xc, 0x10, 0x14, 0x18, 0x20};
++              CONST UINT32 BlockValues[] = {0x60001000, 0, 0x600fffff, 0, 0x60001000, 0, 0x600fffff, 0, 0x60000000, 0};
++              EFI_GUID AcpiTableGuid = EFI_ACPI_TABLE_PROTOCOL_GUID;
++              EFI_ACPI_TABLE_PROTOCOL *AcpiTable = NULL;
++              EFI_GCD_MEMORY_SPACE_DESCRIPTOR Window;
++              UINTN TableKey = 0;
++              UINTN Item;
++              STATIC_ASSERT (sizeof (Ecam) == 208, "Wi-Fi PCIe ECAM report ABI mismatch");
++              STATIC_ASSERT (sizeof (Mcfg) == 60, "Audited MCFG size mismatch");
++              ZeroMem (&Ecam, sizeof (Ecam));
++              ZeroMem (&Window, sizeof (Window));
++              Ecam.Magic = 0x45573251;
++              Ecam.Version = 1;
++              for (Item = 0; Item < 4; Item++) {
++                Ecam.Status[Item] = EFI_NOT_READY;
++              }
++              if (Up.Stage == 9) {
++                for (Item = 0; Item < 4; Item++) {
++                  Ecam.ParfBefore[Item] = MmioRead32 (0x1c00000 + EcamParf[Item]);
++                }
++              }
++              if (Up.Stage == 9 && (Ecam.ParfBefore[3] & 0x13f) == 0x111) {
++                Ecam.Stage = 1;
++                Ecam.Status[0] = gDS->GetMemorySpaceDescriptor (0x60000000, &Window);
++                if (!EFI_ERROR (Ecam.Status[0]) && Window.GcdMemoryType == EfiGcdMemoryTypeNonExistent &&
++                    Window.BaseAddress <= 0x60000000 && Window.Length >= 0x200000 &&
++                    0x60000000 - Window.BaseAddress <= Window.Length - 0x200000) {
++                  Ecam.Status[1] = gDS->AddMemorySpace (EfiGcdMemoryTypeMemoryMappedIo, 0x60000000, 0x200000, EFI_MEMORY_UC | EFI_MEMORY_XP);
++                  if (!EFI_ERROR (Ecam.Status[1])) {
++                    Ecam.Status[2] = gDS->SetMemorySpaceAttributes (0x60000000, 0x200000, EFI_MEMORY_UC | EFI_MEMORY_XP);
++                  }
++                }
++                if (!EFI_ERROR (Ecam.Status[0]) && !EFI_ERROR (Ecam.Status[1]) && !EFI_ERROR (Ecam.Status[2])) {
++                  Ecam.Stage = 2;
++                  Ecam.Rp[0] = MmioRead32 (0x60000000);
++                  Ecam.Rp[1] = MmioRead32 (0x60000004);
++                  Ecam.Rp[2] = MmioRead32 (0x60000008);
++                  Ecam.Rp[3] = MmioRead32 (0x6000000c);
++                  Ecam.Rp[4] = MmioRead32 (0x60000018);
++                  Ecam.RpLink = MmioRead32 (0x60000080);
++                  if ((Ecam.Rp[0] & 0xffff) == 0x17cb && ((Ecam.Rp[3] >> 16) & 0x7f) == 1 && (Ecam.Rp[2] >> 16) != 0x0604) {
++                    Ecam.Reserved = Ecam.Rp[2];
++                    MmioOr32 (0x600008bc, BIT0);
++                    MmioWrite32 (0x60000008, (Ecam.Rp[2] & 0xffffU) | 0x06040000U);
++                    MmioAnd32 (0x600008bc, ~BIT0);
++                    Ecam.Rp[2] = MmioRead32 (0x60000008);
++                  }
++                  if ((Ecam.Rp[0] & 0xffff) == 0x17cb && (Ecam.Rp[2] >> 16) == 0x0604 && ((Ecam.Rp[3] >> 16) & 0x7f) == 1) {
++                    Ecam.Stage = 3;
++                    MmioWrite32 (0x1c00000 + 0x358, 0x4000000);
++                    MmioWrite32 (0x60000018, (Ecam.Rp[4] & 0xff000000U) | 0x00010100U);
++                    Ecam.Rp[5] = MmioRead32 (0x60000018);
++                    MmioWrite32 (0x60001004, 0);
++                    MmioWrite32 (0x60001000, 4);
++                    MmioWrite32 (0x60001008, 0x60100000);
++                    MmioWrite32 (0x6000100c, 0);
++                    MmioWrite32 (0x60001010, 0x601fffff);
++                    MmioWrite32 (0x60001014, 0x00100000);
++                    MmioWrite32 (0x60001018, 0);
++                    MmioWrite32 (0x60001020, 0);
++                    MmioWrite32 (0x60001004, BIT31 | BIT28);
++                    for (Item = 0; Item < 8; Item++) {
++                      Ecam.Atu[Item] = MmioRead32 (0x60001000 + AtuOffsets[Item]);
++                    }
++                    if ((Ecam.Rp[5] & 0xffffff) == 0x010100 && (Ecam.Atu[0] & 0x1f) == 4 &&
++                        (Ecam.Atu[1] & (BIT31 | BIT28)) == (BIT31 | BIT28) && Ecam.Atu[2] == 0x60100000 &&
++                        Ecam.Atu[3] == 0 && Ecam.Atu[4] == 0x601fffff && Ecam.Atu[5] == 0x00100000 && Ecam.Atu[6] == 0) {
++                      Ecam.Stage = 4;
++                      for (Item = 0; Item < 10; Item++) {
++                        MmioWrite32 (0x1c00360 + Item * 4, BlockValues[Item]);
++                      }
++                      for (Item = 0; Item < 10; Item++) {
++                        Ecam.Block[Item] = MmioRead32 (0x1c00360 + Item * 4);
++                      }
++                      if (CompareMem (Ecam.Block, BlockValues, sizeof (BlockValues)) == 0) {
++                        Ecam.Stage = 5;
++                        MmioOr32 (0x1c00000, BIT26);
++                        if (MmioRead32 (0x1c00000) & BIT26) {
++                          Ecam.Stage = 6;
++                          Ecam.Probe[0] = MmioRead32 (0x60008000);
++                          for (Item = 0; Item < 1000; Item++) {
++                            Ecam.Probe[1] = MmioRead32 (0x60100000);
++                            if (Ecam.Probe[1] != 0xffffffff) {
++                              break;
++                            }
++                            gBS->Stall (1000);
++                          }
++                          Ecam.Flags = (UINT32)Item << 8;
++                          if (Ecam.Probe[0] == 0xffffffff && (Ecam.Probe[1] & 0xffff) == 0x17cb) {
++                            Ecam.Stage = 7;
++                            Ecam.Probe[2] = MmioRead32 (0x60100004);
++                            Ecam.Probe[3] = MmioRead32 (0x60100008);
++                            Ecam.Probe[4] = MmioRead32 (0x6010000c);
++                            Ecam.Probe[5] = MmioRead32 (0x60100010);
++                            Ecam.Status[3] = gBS->LocateProtocol (&AcpiTableGuid, NULL, (VOID **)&AcpiTable);
++                            if (!EFI_ERROR (Ecam.Status[3])) {
++                              Ecam.Status[3] = AcpiTable->InstallAcpiTable (AcpiTable, (VOID *)Mcfg, sizeof (Mcfg), &TableKey);
++                              if (!EFI_ERROR (Ecam.Status[3])) {
++                                Ecam.Stage = 8;
++                              }
++                            }
++                          }
++                        }
++                      }
++                    }
++                  }
++                }
++              }
++              if (Up.Stage == 9) {
++                for (Item = 0; Item < 4; Item++) {
++                  Ecam.ParfAfter[Item] = MmioRead32 (0x1c00000 + EcamParf[Item]);
++                }
++              }
++              Ecam.Flags |= Ecam.Stage == 8;
++              gRT->SetVariable (L"Q2qWifiPcieEcam", &DataGuid,
++                EFI_VARIABLE_BOOTSERVICE_ACCESS | EFI_VARIABLE_RUNTIME_ACCESS, sizeof (Ecam), &Ecam);
++              {
++                struct {
++                  UINT32 Magic, Version, Stage, Flags;
++                  EFI_STATUS Install, Uninstall;
++                  UINT32 SidCfgBefore, SidCfgAfter, Entry0, EntryHash, NonZero, Reserved;
++                } Iort;
++                CONST UINT8 IortTable[] = {0x49, 0x4f, 0x52, 0x54, 0x34, 0x04, 0x00, 0x00, 0x00, 0xd2, 0x51, 0x43, 0x4f, 0x4d, 0x20, 0x20, 0x51, 0x43, 0x4f, 0x4d, 0x45, 0x44, 0x4b, 0x32, 0x50, 0x83, 0x00, 0x00, 0x51, 0x43, 0x4f, 0x4d, 0x01, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x30, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0xcc, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x15, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x3c, 0x00, 0x00, 0x00, 0x60, 0x00, 0x00, 0x00, 0x4c, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x4c, 0x03, 0x00, 0x00, 0x61, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x81, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x82, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x83, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x84, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x85, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x86, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x87, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x88, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x89, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x8a, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x8b, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x8c, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x8d, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x8e, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x8f, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x90, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x91, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x92, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x93, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x94, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x95, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x96, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0xd5, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0xd6, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0xd7, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0xd8, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0xd9, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0xda, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0xdb, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0xdc, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0xdd, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0xde, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0xdf, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0xe0, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x5b, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x5c, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x5d, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x5e, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x5f, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x60, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x61, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x62, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x63, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x64, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x65, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x66, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x67, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x68, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x69, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x6a, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x6b, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x6c, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x6d, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x6e, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x6f, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x70, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x71, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x72, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x73, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x74, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x75, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x76, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x77, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x78, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x79, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0xab, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0xac, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0xad, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0xae, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0xaf, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0xb0, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0xb1, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0xb2, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0xb3, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0xb4, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0xb5, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0xb6, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0xb7, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0xb8, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0xb9, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0xc2, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0xc3, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0xbc, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0xc5, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0xe2, 0x02, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0xc7, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0xc8, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0xc9, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0xd1, 0x02, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0xd2, 0x02, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0xd3, 0x02, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0xd4, 0x02, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0xd5, 0x02, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0xd6, 0x02, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0xd7, 0x02, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0xd8, 0x02, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x64, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x65, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x66, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x67, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x68, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x69, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x7e, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x7f, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x80, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x81, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x82, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x83, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x84, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x85, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x86, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0xca, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x02, 0x38, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x24, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x24, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0x87, 0x01, 0x00, 0x00, 0x00, 0x00, 0x1c, 0x00, 0x00, 0x30, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
++                UINTN IortKey = 0;
++                STATIC_ASSERT (sizeof (Iort) == 56, "Wi-Fi PCIe IORT report ABI mismatch");
++                STATIC_ASSERT (sizeof (IortTable) == 1076, "Audited reduced IORT size mismatch");
++                ZeroMem (&Iort, sizeof (Iort));
++                Iort.Magic = 0x49573251;
++                Iort.Version = 1;
++                Iort.Install = EFI_NOT_READY;
++                Iort.Uninstall = EFI_NOT_READY;
++                if (Ecam.Stage == 8) {
++                  Iort.Stage = 1;
++                  Iort.SidCfgBefore = MmioRead32 (0x1c02c00);
++                  for (Item = 0; Item < 256; Item++) {
++                    MmioWrite32 (0x1c02000 + Item * 4, 0);
++                  }
++                  MmioWrite32 (0x1c02000 + 0x15 * 4, 0x01000100);
++                  MmioAnd32 (0x1c02c00, ~BIT0);
++                  Iort.SidCfgAfter = MmioRead32 (0x1c02c00);
++                  Iort.Entry0 = MmioRead32 (0x1c02000);
++                  Iort.EntryHash = MmioRead32 (0x1c02000 + 0x15 * 4);
++                  for (Item = 0; Item < 256; Item++) {
++                    if (Item != 0x15 && MmioRead32 (0x1c02000 + Item * 4) != 0) {
++                      Iort.NonZero++;
++                    }
++                  }
++                  if (!(Iort.SidCfgAfter & BIT0) && Iort.Entry0 == 0 && Iort.EntryHash == 0x01000100 && Iort.NonZero == 0) {
++                    Iort.Stage = 2;
++                    Iort.Install = AcpiTable->InstallAcpiTable (AcpiTable, (VOID *)IortTable, sizeof (IortTable), &IortKey);
++                    if (!EFI_ERROR (Iort.Install)) {
++                      Iort.Stage = 3;
++                    }
++                  }
++                  if (Iort.Stage != 3) {
++                    Iort.Uninstall = AcpiTable->UninstallAcpiTable (AcpiTable, TableKey);
++                  }
++                }
++                Iort.Flags = Iort.Stage == 3;
++                gRT->SetVariable (L"Q2qWifiPcieIort", &DataGuid,
++                  EFI_VARIABLE_BOOTSERVICE_ACCESS | EFI_VARIABLE_RUNTIME_ACCESS, sizeof (Iort), &Iort);
++                {
++                  struct {
++                    UINT32 Magic, Version, Stage, Flags;
++                    UINT32 Scr0, Idr0, Idr1, Gfsr;
++                    UINT32 NumSmr, Valid, MatchIndex, FreeIndex;
++                    UINT32 NumCb, BypassCb, CbUsers, CbarBefore;
++                    UINT32 SctlrBefore, CbarAfter, SctlrAfter, S2crAfter;
++                    UINT32 SmrAfter, SmrMaskAfter, MatchSmr, MatchS2cr;
++                    UINT32 GfsrAfter, ValidMap[3];
++                    UINT32 FirstValidSmr, FirstValidS2cr, Attempt, HighestFree;
++                    struct {
++                      UINT64 Lookup, Enable;
++                      UINT32 Before, After;
++                    } Tbu[2];
++                    UINT32 VoteBefore, VoteAfter, Direct, Reserved;
++                  } Smmu;
++                  CONST CHAR8 *TbuNames[] = {"gcc_ddrss_pcie_sf_tbu_clk", "gcc_aggre_noc_pcie_1_axi_clk"};
++                  UINTN  TbuId;
++                  UINTN  TbuStep;
++                  BOOLEAN TbuState;
++                  UINT32 SmrValue;
++                  UINT32 S2crValue;
++                  UINTN  CbBase;
++                  STATIC_ASSERT (sizeof (Smmu) == 192, "Wi-Fi PCIe SMMU/TBU report ABI mismatch");
++                  ZeroMem (&Smmu, sizeof (Smmu));
++                  Smmu.Magic = 0x53573251;
++                  Smmu.Version = 5;
++                  Smmu.MatchIndex = MAX_UINT32;
++                  Smmu.FreeIndex = MAX_UINT32;
++                  Smmu.HighestFree = MAX_UINT32;
++                  Smmu.BypassCb = MAX_UINT32;
++                  CbBase = 0;
++                  if (Iort.Stage == 3) {
++                    Smmu.Stage = 1;
++                    Smmu.VoteBefore = MmioRead32 (0x152000);
++                    for (TbuStep = 0; TbuStep < 2; TbuStep++) {
++                      Smmu.Tbu[TbuStep].Lookup = EFI_NOT_READY;
++                      Smmu.Tbu[TbuStep].Enable = EFI_NOT_READY;
++                      if (Clock != NULL && Clock->GetClockID != NULL && Clock->EnableClock != NULL && Clock->IsClockEnabled != NULL && Clock->IsClockOn != NULL) {
++                        Smmu.Tbu[TbuStep].Lookup = Clock->GetClockID (Clock, TbuNames[TbuStep], &TbuId);
++                        if (!EFI_ERROR (Smmu.Tbu[TbuStep].Lookup)) {
++                          if (!EFI_ERROR (Clock->IsClockEnabled (Clock, TbuId, &TbuState)) && TbuState) {
++                            Smmu.Tbu[TbuStep].Before |= 1;
++                          }
++                          if (!EFI_ERROR (Clock->IsClockOn (Clock, TbuId, &TbuState)) && TbuState) {
++                            Smmu.Tbu[TbuStep].Before |= 2;
++                          }
++                          Smmu.Tbu[TbuStep].Enable = (Smmu.Tbu[TbuStep].Before & 1) ? EFI_SUCCESS : Clock->EnableClock (Clock, TbuId);
++                          if (!EFI_ERROR (Clock->IsClockEnabled (Clock, TbuId, &TbuState)) && TbuState) {
++                            Smmu.Tbu[TbuStep].After |= 1;
++                          }
++                          if (!EFI_ERROR (Clock->IsClockOn (Clock, TbuId, &TbuState)) && TbuState) {
++                            Smmu.Tbu[TbuStep].After |= 2;
++                          }
++                        }
++                      }
++                    }
++                    if (EFI_ERROR (Smmu.Tbu[0].Lookup) && (Smmu.VoteBefore & BIT19) == 0) {
++                      Smmu.Direct = 1;
++                      MmioOr32 (0x152000, BIT19);
++                    }
++                    Smmu.VoteAfter = MmioRead32 (0x152000);
++                    Smmu.Scr0 = MmioRead32 (0x15000000);
++                    Smmu.Idr0 = MmioRead32 (0x15000020);
++                    Smmu.Idr1 = MmioRead32 (0x15000024);
++                    Smmu.Gfsr = MmioRead32 (0x15000048);
++                    Smmu.NumSmr = Smmu.Idr0 & 0xff;
++                    Smmu.NumCb = Smmu.Idr1 & 0xff;
++                    if ((Smmu.Idr0 & BIT27) && Smmu.NumSmr != 0 && Smmu.NumSmr <= 96 && Smmu.NumCb != 0 && (Smmu.Idr1 & BIT31) == 0) {
++                      Smmu.BypassCb = Smmu.NumCb - 1;
++                      CbBase = 0x15000000 + ((UINTN)1 << (((Smmu.Idr1 >> 28) & 7) + 13)) + (UINTN)Smmu.BypassCb * 0x1000;
++                    }
++                    if (CbBase != 0 && CbBase + 0x1000 <= 0x15100000) {
++                      Smmu.Stage = 2;
++                      Smmu.CbarBefore = MmioRead32 (0x15001000 + Smmu.BypassCb * 4);
++                      Smmu.SctlrBefore = MmioRead32 (CbBase);
++                      for (Item = 0; Item < Smmu.NumSmr; Item++) {
++                        SmrValue = MmioRead32 (0x15000800 + Item * 4);
++                        if (SmrValue & BIT31) {
++                          S2crValue = MmioRead32 (0x15000c00 + Item * 4);
++                          if (Smmu.Valid == 0) {
++                            Smmu.FirstValidSmr = SmrValue;
++                            Smmu.FirstValidS2cr = S2crValue;
++                          }
++                          Smmu.Valid++;
++                          Smmu.ValidMap[Item / 32] |= 1U << (Item % 32);
++                          if ((S2crValue & 0x30000) == 0 && (S2crValue & 0xff) == Smmu.BypassCb) {
++                            Smmu.CbUsers++;
++                          }
++                          if (Smmu.MatchIndex == MAX_UINT32 && ((SmrValue ^ 0x1c01) & ~(SmrValue >> 16) & 0x7fff) == 0) {
++                            Smmu.MatchIndex = (UINT32)Item;
++                            Smmu.MatchSmr = SmrValue;
++                            Smmu.MatchS2cr = S2crValue;
++                          }
++                        } else {
++                          if (Smmu.FreeIndex == MAX_UINT32) {
++                            Smmu.FreeIndex = (UINT32)Item;
++                          }
++                          Smmu.HighestFree = (UINT32)Item;
++                        }
++                      }
++                      if (Smmu.MatchIndex == MAX_UINT32 && Smmu.FreeIndex != MAX_UINT32 && Smmu.CbUsers == 0 && (Smmu.SctlrBefore & BIT0) == 0) {
++                        Smmu.Stage = 3;
++                        MmioWrite32 (CbBase, 0x0a5f0000);
++                        MmioWrite32 (0x15001000 + Smmu.BypassCb * 4, 0x00010000);
++                        MmioWrite32 (0x15000c00 + Smmu.FreeIndex * 4, Smmu.BypassCb);
++                        Smmu.Attempt = 1;
++                        MmioWrite32 (0x15000800 + Smmu.FreeIndex * 4, BIT31 | 0x1c01);
++                        Smmu.SmrAfter = MmioRead32 (0x15000800 + Smmu.FreeIndex * 4);
++                        if (Smmu.SmrAfter != (BIT31 | 0x1c01)) {
++                          Smmu.Attempt = 2;
++                          MmioWrite32 (0x15000800 + Smmu.FreeIndex * 4, BIT31 | 0x00011c00);
++                          Smmu.SmrMaskAfter = MmioRead32 (0x15000800 + Smmu.FreeIndex * 4);
++                        }
++                        Smmu.SctlrAfter = MmioRead32 (CbBase);
++                        Smmu.CbarAfter = MmioRead32 (0x15001000 + Smmu.BypassCb * 4);
++                        Smmu.S2crAfter = MmioRead32 (0x15000c00 + Smmu.FreeIndex * 4);
++                        Smmu.GfsrAfter = MmioRead32 (0x15000048);
++                        if (Smmu.SctlrAfter == 0x0a5f0000 && ((Smmu.CbarAfter >> 16) & 3) == 1 && (Smmu.S2crAfter & 0x300ff) == Smmu.BypassCb && (Smmu.SmrAfter == (BIT31 | 0x1c01) || Smmu.SmrMaskAfter == (BIT31 | 0x00011c00))) {
++                          Smmu.Stage = 4;
++                        }
++                      }
++                    }
++                  }
++                  Smmu.Flags = Smmu.Stage == 4;
++                  gRT->SetVariable (L"Q2qWifiSmmu", &DataGuid,
++                    EFI_VARIABLE_BOOTSERVICE_ACCESS | EFI_VARIABLE_RUNTIME_ACCESS, sizeof (Smmu), &Smmu);
++                }
++              }
++            }
++          }
++        }
++      }
++      gRT->SetVariable (L"Q2qWifiClockVote", &DataGuid,
++        EFI_VARIABLE_BOOTSERVICE_ACCESS | EFI_VARIABLE_RUNTIME_ACCESS,
++        sizeof (Vote), &Vote);
++    }
++    gRT->SetVariable (L"Q2qWifiClockDiag", &DataGuid,
++      EFI_VARIABLE_BOOTSERVICE_ACCESS | EFI_VARIABLE_RUNTIME_ACCESS,
++      sizeof (Diag), &Diag);
++  }
++  Data.ReadEnable = Read ((UINT32)Channel, 0xc0, 3, &Data.Before);
++  Data.ReadIo = Read ((UINT32)Channel, 0xc0, 5, &Data.IoConfig);
++  Data.ReadAnalog = Read ((UINT32)Channel, 0xc0, 6, &Data.AnalogConfig);
++  Data.ReadIdentity = Read ((UINT32)Channel, 0xc0, 0x61, &Data.Identity);
++  if (Data.ReadEnable || Data.ReadIo || Data.ReadAnalog || Data.ReadIdentity) {
++    goto Publish;
++  }
++  Data.Flags |= 8U;
++  Data.IoMicrovolts = 1500000U + (Data.IoConfig & 31U) * 25000U;
++  Data.AnalogMicrovolts = 2700000U + (Data.AnalogConfig & 63U) * 25000U;
++  if (!Q2qTouchPowerAllowed (Data.IoConfig, Data.AnalogConfig, Data.Before)) {
++    goto Publish;
++  }
++  Data.Flags |= 16U;
++  Wanted = (UINT8)(Data.Before | 6U);
++  if (Wanted == Data.Before) {
++    Data.After = Data.Before;
++    Data.Flags |= 128U;
++  } else {
++    Data.Flags |= 32U;
++    Data.WriteEnable = Write ((UINT32)Channel, 0xc0, 3, Wanted);
++    if (Data.WriteEnable) {
++      goto Publish;
++    }
++    Data.ReadBack = Read ((UINT32)Channel, 0xc0, 3, &Data.After);
++    if (!Data.ReadBack && Data.After == Wanted) {
++      Data.Flags |= 64U;
++      gBS->Stall (20000);
++    }
++  }
++Publish:
++  Status = gRT->SetVariable (L"Q2qTouchPowerDiag", &DataGuid,
++             EFI_VARIABLE_BOOTSERVICE_ACCESS | EFI_VARIABLE_RUNTIME_ACCESS,
++             sizeof (Data), &Data);
++  DEBUG ((EFI_D_ERROR, "Q2Q TOUCH POWER: flags=%x enable=%02x/%02x IO=%u AVDD=%u variable=%r\n",
++          Data.Flags, Data.Before, Data.After, Data.IoMicrovolts, Data.AnalogMicrovolts, Status));
++}
++
++STATIC
++VOID
++Q2qPublishGicDiagnostic (VOID)
++{
++  EFI_GUID Guid = {0xe6e1c119, 0x4d0a, 0x4b5c, {0x96, 0x9c, 0x42, 0x49, 0xde, 0x82, 0xfb, 0xfa}};
++  struct {
++    UINT32 Magic;
++    UINT32 Version;
++    UINT64 Distributor;
++    UINT32 Typer;
++    UINT32 MaxSpi;
++    UINT32 MaxExtSpi;
++    UINT32 IpccMask;
++  } Data;
++  CONST UINT32 Irqs[] = {0x105, 0x106, 0x107, 0x384};
++  EFI_STATUS Status;
++  UINTN Index;
++
++  if ((AsciiStrCmp ((CONST CHAR8 *)PcdGetPtr (PcdSmbiosSystemRetailModel), "q2q") != 0) ||
++      (PcdGet64 (PcdGicDistributorBase) != 0x17A00000)) {
++    return;
++  }
++  Data.Magic = 0x44473251;
++  Data.Version = 1;
++  Data.Distributor = PcdGet64 (PcdGicDistributorBase);
++  Data.Typer = MmioRead32 ((UINTN)Data.Distributor + ARM_GIC_ICDICTR);
++  Data.MaxSpi = (UINT32)ARM_GIC_ICDICTR_GET_SPI_MAX_INTID (Data.Typer);
++  Data.MaxExtSpi = (Data.Typer & ARM_GIC_ICDICTR_EXT_SPI_ENABLED) ?
++                  (UINT32)ARM_GIC_ICDICTR_GET_EXT_SPI_MAX_INTID (Data.Typer) : 0;
++  Data.IpccMask = 0;
++  for (Index = 0; Index < sizeof (Irqs) / sizeof (Irqs[0]); Index++) {
++    if (Irqs[Index] <= Data.MaxSpi) {
++      Data.IpccMask |= (UINT32)(1U << Index);
++    }
++  }
++  Status = gRT->SetVariable (L"Q2qGicDiag", &Guid,
++             EFI_VARIABLE_BOOTSERVICE_ACCESS | EFI_VARIABLE_RUNTIME_ACCESS,
++             sizeof (Data), &Data);
++  if (gST->ConOut != NULL) {
++    Print (L"Q2Q GIC READ-ONLY: TYPER=%08x MAX_SPI=%u MAX_EXT=%u IPCC_MASK=%x VAR=%r\n",
++           Data.Typer, Data.MaxSpi, Data.MaxExtSpi, Data.IpccMask, Status);
++  }
++}
++
++STATIC
++VOID
++Q2qPublishSocInfoDiagnostic (VOID)
++{
++  EFI_GUID Guid = {0x7d7a1223, 0x2c79, 0x4d70, {0xb3, 0x5c, 0x80, 0x8f, 0xce, 0x6a, 0x10, 0x27}};
++  struct {
++    UINT32 Magic;
++    UINT32 Version;
++    UINT64 ItemAddress;
++    UINT64 SosiValue;
++    UINT64 SmemStatus;
++    UINT64 TableStatus;
++    UINT32 ItemSize;
++    UINT32 Flags;
++  } Data = {0};
++  EFI_SMEM_PROTOCOL *Smem;
++  EFI_ACPI_DESCRIPTION_HEADER *Table = NULL;
++  VOID *Item = NULL;
++  EFI_STATUS Status;
++  UINTN Handle;
++  UINTN Index;
++  UINTN Matches = 0;
++  UINT8 *Bytes;
++  UINT8 Sum = 0;
++
++  if (AsciiStrCmp ((CONST CHAR8 *)PcdGetPtr (PcdSmbiosSystemRetailModel), "q2q") != 0) {
++    return;
++  }
++  Data.Magic = 0x31435351;
++  Data.Version = 1;
++  Status = gBS->LocateProtocol (&gEfiSMEMProtocolGuid, NULL, (VOID **)&Smem);
++  if (!EFI_ERROR (Status)) {
++    Status = Smem->GetFunc (137, &Data.ItemSize, &Item);
++  }
++  Data.SmemStatus = (UINT64)Status;
++  Data.ItemAddress = (UINT64)(UINTN)Item;
++  if (!EFI_ERROR (Status)) {
++    Data.Flags |= 1U;
++  }
++  if ((Data.ItemAddress >= 0x80900000ULL) &&
++      (Data.ItemAddress < 0x80B00000ULL) &&
++      (Data.ItemSize >= 176) &&
++      (Data.ItemSize <= 0x80B00000ULL - Data.ItemAddress)) {
++    Data.Flags |= 2U;
++  }
++  Status = LocateTableBySignature (EFI_ACPI_3_0_DIFFERENTIATED_SYSTEM_DESCRIPTION_TABLE_SIGNATURE, &Table, &Handle);
++  Data.TableStatus = (UINT64)Status;
++  if (!EFI_ERROR (Status)) {
++    if ((Table->Length >= sizeof (*Table)) && (Table->Length <= 4096)) {
++      Bytes = (UINT8 *)Table;
++      for (Index = 0; Index < Table->Length; Index++) {
++        Sum = (UINT8)(Sum + Bytes[Index]);
++      }
++      if (Sum == 0) {
++        Data.Flags |= 4U;
++      }
++      for (Index = sizeof (*Table); Index + 14 <= Table->Length; Index++) {
++        if ((Bytes[Index] == 0x08) && (Bytes[Index + 1] == 'S') &&
++            (Bytes[Index + 2] == 'O') && (Bytes[Index + 3] == 'S') &&
++            (Bytes[Index + 4] == 'I') && (Bytes[Index + 5] == 0x0E)) {
++          Matches++;
++          Data.SosiValue = ReadUnaligned64 ((CONST UINT64 *)(Bytes + Index + 6));
++        }
++      }
++      if (Matches == 1) {
++        Data.Flags |= 8U;
++        if ((Data.Flags & 3U) == 3U && Data.SosiValue == Data.ItemAddress) {
++          Data.Flags |= 16U;
++        }
++      }
++    }
++    FreePool (Table);
++  }
++  Status = gRT->SetVariable (L"Q2qSocInfoDiag", &Guid,
++             EFI_VARIABLE_BOOTSERVICE_ACCESS | EFI_VARIABLE_RUNTIME_ACCESS,
++             sizeof (Data), &Data);
++  if (gST->ConOut != NULL) {
++    Print (L"Q2Q SOCINFO RO: GET=%lx TABLE=%lx SIZE=%u FLAGS=%x\n",
++           Data.SmemStatus, Data.TableStatus, Data.ItemSize, Data.Flags);
++    Print (L"Q2Q SOCINFO RO: ITEM=%016lx SOSI=%016lx VAR=%r\n",
++           Data.ItemAddress, Data.SosiValue, Status);
++  }
++}
++
++STATIC
++UINT32
++Q2qCmdDbLookup (
++  CONST UINT8 *Bytes,
++  UINTN Size,
++  CONST CHAR8 *Name,
++  UINT16 *AuxVersion,
++  UINT16 *AuxSize)
++{
++  UINTN Slot;
++  UINTN Index;
++  UINTN Offset;
++  UINTN HeaderOffset;
++  UINTN DataOffset;
++  UINTN Count;
++  UINTN AuxOffset;
++  UINT64 Key;
++  UINT16 Version;
++
++  *AuxVersion = 0;
++  *AuxSize = 0;
++  if ((Size < 144) || (ReadUnaligned32 ((CONST UINT32 *)Bytes) != 1) ||
++      (ReadUnaligned32 ((CONST UINT32 *)(Bytes + 4)) != 0x0C0330DB)) {
++    return 4;
++  }
++  Key = ReadUnaligned64 ((CONST UINT64 *)Name);
++  for (Slot = 0; Slot < 8; Slot++) {
++    Offset = 8 + Slot * 16;
++    HeaderOffset = ReadUnaligned16 ((CONST UINT16 *)(Bytes + Offset + 2));
++    DataOffset = ReadUnaligned16 ((CONST UINT16 *)(Bytes + Offset + 4));
++    Count = ReadUnaligned16 ((CONST UINT16 *)(Bytes + Offset + 6));
++    Version = ReadUnaligned16 ((CONST UINT16 *)(Bytes + Offset + 8));
++    if ((HeaderOffset > Size - 144) || (Count > (Size - 144 - HeaderOffset) / 24)) {
++      return 2;
++    }
++    for (Index = 0; Index < Count; Index++) {
++      Offset = 144 + HeaderOffset + Index * 24;
++      if (ReadUnaligned64 ((CONST UINT64 *)(Bytes + Offset)) != Key) {
++        continue;
++      }
++      *AuxVersion = Version;
++      *AuxSize = ReadUnaligned16 ((CONST UINT16 *)(Bytes + Offset + 20));
++      AuxOffset = ReadUnaligned16 ((CONST UINT16 *)(Bytes + Offset + 22));
++      if ((DataOffset > Size - 144) || (AuxOffset > Size - 144 - DataOffset) ||
++          (*AuxSize > Size - 144 - DataOffset - AuxOffset)) {
++        return 2;
++      }
++      return ((Version >= 0x100) && (Version < 0x200) && (*AuxSize == 4)) ? 0 : 3;
++    }
++  }
++  return 1;
++}
++
++STATIC
++VOID
++Q2qPublishCmdDbDiagnostic (VOID)
++{
++  EFI_GUID Guid = {0x13b49fe8, 0x7c4a, 0x4d71, {0x82, 0xb5, 0x9b, 0xb9, 0xae, 0x7c, 0x9e, 0x52}};
++  struct {
++    UINT32 Magic;
++    UINT32 Version;
++    UINT32 PublishedAddress;
++    UINT32 PublishedSize;
++    UINT32 Flags;
++    UINT32 DtVersion;
++    UINT32 DtMagic;
++    UINT32 PublishedVersion;
++    UINT32 PublishedMagic;
++    struct {
++      UINT32 Status;
++      UINT16 AuxVersion;
++      UINT16 AuxSize;
++    } Probes[3];
++    UINT32 Expected;
++    UINT32 Good;
++    UINT32 Missing;
++    UINT32 Bad;
++    UINT32 FirstIndex;
++    UINT32 FirstStatus;
++    UINT16 FirstAuxVersion;
++    UINT16 FirstAuxSize;
++  } Data = {0};
++  CONST CHAR8 Names[3][8] = {"smpb5", "smpb11", "ldob1"};
++  CONST CHAR8 PppNames[50][8] = {
++    "smpb5", "smpb6", "smpb9", "smpb10",
++    "smpc1", "smpc2", "smpc3", "smpc4", "smpc6", "smpc8", "smpc10",
++    "smpe1", "smpe2", "smpe3", "ldob1", "ldob2", "ldob3", "ldob4",
++    "ldoc1", "ldoc2", "ldoc3", "ldoc4", "ldoc5", "ldoc6", "ldoc7", "ldoc8", "ldoc9",
++    "ldoc10", "ldoc11", "ldoc12", "ldoc13",
++    "ldoe1", "ldoe2", "ldoe3", "ldoe4", "ldoe5", "ldoe6", "ldoe7",
++    "lnbclka2", "rfclka1", "rfclka2", "bobc1",
++    "ldob5", "ldob6", "ldob7", "ldob8", "ldob9", "ldod1", "smpb11", "smpb12"
++  };
++  CONST UINT16 PppIds[50] = {
++    24, 25, 28, 29, 30, 31, 32, 33, 35, 37, 39, 40, 41, 42, 89, 90, 91, 92,
++    93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105,
++    111, 112, 113, 114, 115, 116, 117, 143, 145, 146, 208,
++    226, 227, 228, 229, 230, 252, 312, 313
++  };
++  CHAR8 FirstName[9] = "none";
++  UINT16 AuxVersion;
++  UINT16 AuxSize;
++  UINT32 Result;
++  CONST UINT8 *Bytes = (CONST UINT8 *)(UINTN)0x80860000;
++  EFI_STATUS Status;
++  UINTN Index;
++
++  if (AsciiStrCmp ((CONST CHAR8 *)PcdGetPtr (PcdSmbiosSystemRetailModel), "q2q") != 0) {
++    return;
++  }
++  Data.Magic = 0x31424443;
++  Data.Version = 2;
++  Data.Expected = 50;
++  Data.FirstIndex = 0xFFFFFFFFU;
++  Data.PublishedAddress = MmioRead32 (0x0C3F000C);
++  Data.PublishedSize = MmioRead32 (0x0C3F0010);
++  Data.DtVersion = ReadUnaligned32 ((CONST UINT32 *)Bytes);
++  Data.DtMagic = ReadUnaligned32 ((CONST UINT32 *)(Bytes + 4));
++  if ((Data.DtVersion == 1) && (Data.DtMagic == 0x0C0330DB)) {
++    Data.Flags |= 1U;
++  }
++  if ((Data.PublishedAddress >= 0x80860000U) && (Data.PublishedAddress < 0x80880000U) &&
++      (Data.PublishedSize >= 144) && (Data.PublishedSize <= 0x80880000U - Data.PublishedAddress)) {
++    Data.Flags |= 2U;
++    Bytes = (CONST UINT8 *)(UINTN)Data.PublishedAddress;
++    Data.PublishedVersion = ReadUnaligned32 ((CONST UINT32 *)Bytes);
++    Data.PublishedMagic = ReadUnaligned32 ((CONST UINT32 *)(Bytes + 4));
++    if ((Data.PublishedVersion == 1) && (Data.PublishedMagic == 0x0C0330DB)) {
++      Data.Flags |= 4U;
++    }
++  }
++  if ((Data.PublishedAddress == 0x80860000U) && (Data.PublishedSize == 0x20000U)) {
++    Data.Flags |= 8U;
++  }
++  for (Index = 0; Index < 3; Index++) {
++    Data.Probes[Index].Status = Q2qCmdDbLookup ((CONST UINT8 *)(UINTN)0x80860000, 0x20000,
++                                Names[Index], &Data.Probes[Index].AuxVersion, &Data.Probes[Index].AuxSize);
++  }
++  for (Index = 0; Index < Data.Expected; Index++) {
++    AuxVersion = 0;
++    AuxSize = 0;
++    Result = ((Data.Flags & 6U) == 6U) ?
++      Q2qCmdDbLookup ((CONST UINT8 *)(UINTN)Data.PublishedAddress, Data.PublishedSize,
++        PppNames[Index], &AuxVersion, &AuxSize) : 4;
++    if (Result == 0) {
++      Data.Good++;
++    } else {
++      if (Result == 1) {
++        Data.Missing++;
++      } else {
++        Data.Bad++;
++      }
++      if (Data.FirstIndex == 0xFFFFFFFFU) {
++        UINTN Character;
++        Data.FirstIndex = PppIds[Index];
++        Data.FirstStatus = Result;
++        Data.FirstAuxVersion = AuxVersion;
++        Data.FirstAuxSize = AuxSize;
++        for (Character = 0; Character < 8; Character++) {
++          FirstName[Character] = PppNames[Index][Character];
++        }
++        FirstName[8] = 0;
++      }
++    }
++  }
++  Status = gRT->SetVariable (L"Q2qCmdDbDiag", &Guid,
++             EFI_VARIABLE_BOOTSERVICE_ACCESS | EFI_VARIABLE_RUNTIME_ACCESS, sizeof (Data), &Data);
++  if (gST->ConOut != NULL) {
++    Print (L"Q2Q CMDDB RO: PUB=%08x SIZE=%x FLAGS=%x VAR=%r\n",
++           Data.PublishedAddress, Data.PublishedSize, Data.Flags, Status);
++    Print (L"Q2Q CMDDB RO: DT_VER=%u DT_MAGIC=%08x PUB_VER=%u PUB_MAGIC=%08x\n",
++           Data.DtVersion, Data.DtMagic, Data.PublishedVersion, Data.PublishedMagic);
++    for (Index = 0; Index < 3; Index++) {
++      Print (L"Q2Q CMDDB RO: %a STATUS=%u AUX_VER=%x AUX_SIZE=%u\n",
++             Names[Index], Data.Probes[Index].Status, Data.Probes[Index].AuxVersion, Data.Probes[Index].AuxSize);
++    }
++    Print (L"Q2Q PPP CMDDB: TOTAL=%u GOOD=%u MISS=%u BAD=%u\n",
++           Data.Expected, Data.Good, Data.Missing, Data.Bad);
++    Print (L"Q2Q PPP CMDDB: FIRST=%a ID=%u STATUS=%u VER=%x SIZE=%u\n",
++           FirstName, Data.FirstIndex, Data.FirstStatus, Data.FirstAuxVersion, Data.FirstAuxSize);
++  }
++}
+ 
+ STATIC
+ VOID
+@@ -28,6 +1321,11 @@ DeviceBootManagerAfterConsole ()
+   EFI_STATUS Status;
+   EFI_EVENT  InitEvent;
+ 
++  Q2qPublishSocInfoDiagnostic ();
++  Q2qPublishCmdDbDiagnostic ();
++  Q2qPublishGicDiagnostic ();
++  Q2qPublishTouchPowerDiagnostic ();
++
+   // Create SD Card Init Event
+   Status = gBS->CreateEventEx (EVT_NOTIFY_SIGNAL, TPL_CALLBACK, DummyNotify, NULL, &gSdCardInitGuid, &InitEvent);
+   if (EFI_ERROR (Status)) {
+diff --git a/Silicon/Qualcomm/QcomPkg/Library/PlatformBootManagerLib/PlatformBootManagerLib.inf b/Silicon/Qualcomm/QcomPkg/Library/PlatformBootManagerLib/PlatformBootManagerLib.inf
+index 73533646..92c65cc5 100644
+--- a/Silicon/Qualcomm/QcomPkg/Library/PlatformBootManagerLib/PlatformBootManagerLib.inf
++++ b/Silicon/Qualcomm/QcomPkg/Library/PlatformBootManagerLib/PlatformBootManagerLib.inf
+@@ -14,11 +14,29 @@
+   MdeModulePkg/MdeModulePkg.dec
+   MsCorePkg/MsCorePkg.dec
+   QcomPkg/QcomPkg.dec
++  ArmPkg/ArmPkg.dec
++  SiliciumPkg/SiliciumPkg.dec
+ 
+ [LibraryClasses]
+   DebugLib
+   UefiBootServicesTableLib
+   RfsProtectionLib
++  BaseLib
++  IoLib
++  PcdLib
++  UefiLib
++  UefiRuntimeServicesTableLib
++  DxeServicesTableLib
++  AslUpdateLib
++  MemoryAllocationLib
++  BaseMemoryLib
++
++[Pcd]
++  gSiliciumPkgTokenSpaceGuid.PcdSmbiosSystemRetailModel
++  gArmTokenSpaceGuid.PcdGicDistributorBase
++
++[Protocols]
++  gEfiSMEMProtocolGuid
+ 
+ [Guids]
+   gUsbControllerInitGuid
+diff --git a/Silicon/Silicium/SiliciumPkg/Library/MemoryInitPeiLib/MemoryInitPei.c b/Silicon/Silicium/SiliciumPkg/Library/MemoryInitPeiLib/MemoryInitPei.c
+index 035254a2..4c514ec3 100644
+--- a/Silicon/Silicium/SiliciumPkg/Library/MemoryInitPeiLib/MemoryInitPei.c
++++ b/Silicon/Silicium/SiliciumPkg/Library/MemoryInitPeiLib/MemoryInitPei.c
+@@ -149,6 +149,21 @@ MemoryPeim (
+     return Status;
+   }
+ 
++  // Publish the execute-in-place SEC copy of the live translation entry helper.
++  // It lives in the UEFI FD, outside the DXE Heap, so DXE splits of DXE Heap block
++  // mappings that cover CpuDxe use break-before-make instead of disabling the MMU.
++  {
++    VOID (EFIAPI *ReplaceLiveEntryFunc)(UINT64 *, UINT64, UINT64, BOOLEAN) = ArmReplaceLiveTranslationEntry;
++    UINTN FuncAddress = (UINTN)ReplaceLiveEntryFunc;
++
++    if (FuncAddress >= FixedPcdGet64 (PcdFdBaseAddress) && FuncAddress < FixedPcdGet64 (PcdFdBaseAddress) + FixedPcdGet32 (PcdFdSize) &&
++        (FuncAddress < UefiMemoryBase || FuncAddress >= UefiMemoryBase + UefiMemorySize)) {
++      BuildGuidDataHob (&gArmMmuReplaceLiveTranslationEntryFuncGuid, &ReplaceLiveEntryFunc, sizeof (ReplaceLiveEntryFunc));
++    } else {
++      DEBUG ((EFI_D_WARN, "Live translation helper 0x%llx not in FD; HOB skipped\n", (UINT64)FuncAddress));
++    }
++  }
++
+   // Build Memory Type Info HOB
+   if (FeaturePcdGet (PcdPrePiProduceMemoryTypeInformationHob)) {
+     BuildMemoryTypeInformationHob ();
+diff --git a/Silicon/Silicium/SiliciumPkg/Library/MemoryInitPeiLib/MemoryInitPeiLib.inf b/Silicon/Silicium/SiliciumPkg/Library/MemoryInitPeiLib/MemoryInitPeiLib.inf
+index 0ddd88cc..f12f28d1 100644
+--- a/Silicon/Silicium/SiliciumPkg/Library/MemoryInitPeiLib/MemoryInitPeiLib.inf
++++ b/Silicon/Silicium/SiliciumPkg/Library/MemoryInitPeiLib/MemoryInitPeiLib.inf
+@@ -38,5 +38,12 @@
+   gArmTokenSpaceGuid.PcdSystemMemoryBase
+   gArmTokenSpaceGuid.PcdSystemMemorySize
+ 
++[FixedPcd]
++  gArmTokenSpaceGuid.PcdFdBaseAddress
++  gArmTokenSpaceGuid.PcdFdSize
++
++[Guids]
++  gArmMmuReplaceLiveTranslationEntryFuncGuid
++
+ [Depex]
+   TRUE

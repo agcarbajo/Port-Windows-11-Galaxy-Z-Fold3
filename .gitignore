@@ -1,0 +1,10 @@
+# Downloaded by drivers/tools/Fetch-Dependencies.ps1
+/drivers/bsp/
+/drivers/components/WLAN/qcwlanhsp8380/
+/drivers/tools/DriverUpdater/
+
+# UEFI build output
+/uefi/out/
+
+__pycache__/
+*.pyc

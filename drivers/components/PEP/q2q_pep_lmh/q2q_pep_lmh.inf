@@ -1,0 +1,52 @@
+;*****************************************
+;
+;Copyright (c) 2012-2020 by QUALCOMM Technologies, Incorporated.
+;All Rights Reserved. Qualcomm Confidential and Proprietary
+;
+;8350 PEP.inf file
+;*****************************************
+[Version]
+Signature="$WINDOWS NT$"
+Class=System
+ClassGuid={4D36E97D-E325-11CE-BFC1-08002BE10318}
+Provider=%QC%
+DriverVer=10/06/2026,1.0.3528.8901
+CatalogFile=q2q_pep_lmh.cat
+PnpLockdown=1
+
+[Manufacturer]
+%QC%=Q2Q,NTarm64.10.0...22000
+
+[Q2Q.NTarm64.10.0...22000]
+%DeviceDesc%=Pep,ACPI\QCOM1A17
+
+[Pep.NT]
+CopyFiles=PepFiles
+
+[Pep.NT.Services]
+AddService=qcpep,0x00000002,PepService
+
+[PepService]
+DisplayName=%DeviceDesc%
+ServiceType=1
+StartType=0
+ErrorControl=1
+ServiceBinary=%13%\qcpep8350.sys
+LoadOrderGroup=Base
+
+[PepFiles]
+qcpep8350.sys
+
+[DestinationDirs]
+PepFiles=13
+
+[SourceDisksNames]
+1=%DiskDesc%,,,
+
+[SourceDisksFiles]
+qcpep8350.sys=1
+
+[Strings]
+QC="Local q2q BSP Validation"
+DeviceDesc="q2q Qualcomm PEP LMH IRQ mask candidate"
+DiskDesc="q2q PEP LMH candidate"
