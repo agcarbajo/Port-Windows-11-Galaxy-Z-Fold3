@@ -1,0 +1,61 @@
+; q2qbatt.inf - own KMDF battery miniclass for SM-F926B (q2q): MAX77705 fuel gauge + charger status + S2ASL01
+; per-pack diagnostics over SPB (I2C), strictly read-only on the buses. Device: ACPI\Q2QC0B01 (SSDT Q2QBATD).
+
+[Version]
+Signature   = "$WINDOWS NT$"
+Class       = Battery
+ClassGuid   = {72631e54-78a4-11d0-bcf7-00aa00b7b32a}
+Provider    = %ProviderName%
+CatalogFile = q2qbatt.cat
+DriverVer   = 11/17/2026,0.1.0.1
+PnpLockdown = 1
+
+[DestinationDirs]
+DefaultDestDir = 13
+
+[SourceDisksNames]
+1 = %DiskName%
+
+[SourceDisksFiles]
+q2qbatt.sys = 1
+
+[Manufacturer]
+%ProviderName% = Q2Q, NTARM64.10.0...16299
+
+[Q2Q.NTARM64.10.0...16299]
+%DeviceDesc% = Q2qBatt_Inst, ACPI\Q2QC0B01
+
+[Q2qBatt_Inst.NT]
+CopyFiles = Q2qBatt_Files
+
+[Q2qBatt_Files]
+q2qbatt.sys
+
+[Q2qBatt_Inst.NT.HW]
+AddReg = Q2qBatt_HW_AddReg
+
+[Q2qBatt_HW_AddReg]
+; Nominal pack voltage used for mAh -> mWh (typical Li-ion nominal; not in the DT).
+HKR,, NominalVoltage_mV, 0x00010001, 3880
+
+[Q2qBatt_Inst.NT.Services]
+AddService = q2qbatt, 0x00000002, Q2qBatt_Service
+
+[Q2qBatt_Service]
+DisplayName   = %ServiceDesc%
+ServiceType   = 1
+StartType     = 3
+ErrorControl  = 1
+ServiceBinary = %13%\q2qbatt.sys
+
+[Q2qBatt_Inst.NT.Wdf]
+KmdfService = q2qbatt, Q2qBatt_WdfSect
+
+[Q2qBatt_WdfSect]
+KmdfLibraryVersion = 1.15
+
+[Strings]
+ProviderName = "q2q WOA project"
+DiskName     = "q2q battery driver"
+DeviceDesc   = "q2q dual-pack battery (MAX77705)"
+ServiceDesc  = "q2q battery miniclass"
