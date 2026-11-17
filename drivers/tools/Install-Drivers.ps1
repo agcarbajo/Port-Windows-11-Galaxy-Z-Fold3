@@ -39,6 +39,10 @@ if (-not $SkipDrivers) {
     if (-not (Test-Path (Join-Path $Drivers 'bsp\Drivers')) -or -not (Test-Path (Join-Path $Drivers 'components\WLAN\qcwlanhsp8380\qcwlanhsp8380.inf'))) {
         throw 'Missing BSP or Wi-Fi package: run tools\Fetch-Dependencies.ps1 first'
     }
+    $pepDir = Join-Path $Drivers 'components\PEP\q2q_pep_lmh'
+    if (-not (Test-Path (Join-Path $pepDir 'qcpep8350.sys')) -or -not (Test-Path (Join-Path $pepDir 'q2q_pep_lmh.cat'))) {
+        throw 'Missing signed LMH PEP: run tools\Fetch-Dependencies.ps1, then sign it (see drivers\README.md)'
+    }
     $arch = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' } else { 'x64' }
     $updater = Get-ChildItem (Join-Path $PSScriptRoot "DriverUpdater\$arch") -Recurse -Filter DriverUpdater.exe | Select-Object -First 1
     if (-not $updater) { throw 'DriverUpdater not found: run tools\Fetch-Dependencies.ps1 first' }

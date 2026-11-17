@@ -3,6 +3,10 @@
 /drivers/components/WLAN/qcwlanhsp8380/
 /drivers/tools/DriverUpdater/
 
+# Generated from the BSP by drivers/tools/make_pep_lmh.py and signed locally
+/drivers/components/PEP/q2q_pep_lmh/qcpep8350.sys
+/drivers/components/PEP/q2q_pep_lmh/q2q_pep_lmh.cat
+
 # UEFI build output
 /uefi/out/
 

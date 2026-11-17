@@ -7,6 +7,8 @@
     - Qualcomm Wi-Fi driver qcwlanhsp8380 1.0.4516.4000 for PCI 17CB:1103 (WHQL, Microsoft Update Catalog)
       -> drivers\components\WLAN\qcwlanhsp8380
     - DriverUpdater (WOA-Project) -> drivers\tools\DriverUpdater
+    - LMH-fixed Qualcomm PEP built from the BSP binary by make_pep_lmh.py
+      -> drivers\components\PEP\q2q_pep_lmh\qcpep8350.sys (unsigned: sign it, see drivers\README.md)
 
     Every download is verified against a pinned SHA-256 / commit.
 #>
@@ -69,6 +71,14 @@ foreach ($arch in 'x64', 'arm64') {
     Remove-Item $zip
 }
 Write-Host "DriverUpdater $($DriverUpdater.Version) ready"
+
+# LMH-fixed PEP (not redistributed: generated from the BSP binary)
+$pepSys = Join-Path $Drivers 'components\PEP\q2q_pep_lmh\qcpep8350.sys'
+if (-not (Test-Path $pepSys)) {
+    & python (Join-Path $PSScriptRoot 'make_pep_lmh.py') (Join-Path $Bsp.Path 'Drivers\SOC\PowerManagement\qcpep8350.sys') $pepSys
+    if ($LASTEXITCODE) { throw 'make_pep_lmh.py failed' }
+    Write-Warning "Sign $pepSys and create q2q_pep_lmh.cat before installing (see drivers\README.md)"
+}
 
 & python (Join-Path $PSScriptRoot 'make_definition.py') --check
 if ($LASTEXITCODE) { Write-Warning 'definitions\q2q.xml does not match the downloaded BSP' }
