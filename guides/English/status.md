@@ -2,98 +2,88 @@
 
 [🏠 Home](../../README.md) | **English** | [Español](../Spanish/status.md)
 
-- Device: **Samsung Galaxy Z Fold3 — SM-F926B / q2q**.
-- Last updated: **2026-10-20**.
-- Current driver set: development snapshot; no numbered release yet.
-- Current UEFI: development snapshot; functional baseline restored on 2026-10-19.
+- Device: **Samsung Galaxy Z Fold3 — SM-F926B / q2q**
+- Last updated: **2026-11-17**
+- Releases: none yet (development snapshot)
 
-## Simple status
+✅ Working · ⚠️ Partial · ❌ Not working · ❔ Not tested
 
-✅ Working · ⚠️ Partial / in development · ❔ Not verified
+The summary table is in the [README](../../README.md#status). Results marked ¹ come from the
+development unit and need the GPU driver package and UEFI/ACPI changes that are not released yet.
 
-| Feature | Notes | Status |
-| --- | --- | :---: |
-| 🪟 Windows boot | Reaches OOBE / desktop on the development unit | ✅ |
-| 🖥️ Display | Basic output works; fold / panel switching not verified | ⚠️ |
-| 🎆 GPU | Real command completion; Direct3D / DXGI acceleration still in development | ⚠️ |
-| 👆 Main touch | Operator-confirmed working | ✅ |
-| 👆 Cover touch | Separate controller; not verified | ❔ |
-| 🛜 Wi-Fi | Operator-confirmed connectivity | ✅ |
-| ⌨️ Side buttons | Power, volume up and volume down work | ✅ |
-| 💾 Storage | Windows boots from UFS; stress and all-LUN native I/O not verified | ⚠️ |
-| 🔊 Audio | Windows audio unverified; this unit's internal speakers are physically faulty | ❔ |
-| 🔋 Battery | Battery reporting and power management not verified | ❔ |
-| 🔌 Charging | Windows charging behaviour not verified | ❔ |
-| 🪵 USB | Windows host / OTG and device modes not verified | ❔ |
-| 🔵 Bluetooth | Not verified | ❔ |
-| 🖊️ Pen | Not verified | ❔ |
-| 📷 Cameras | Not verified | ❔ |
-| 🧭 Sensors | Hinge, rotation and other sensors not verified | ❔ |
-| 🔒 Fingerprint | Not verified | ❔ |
-| 💤 Sleep / resume | Not verified | ❔ |
+## 🖥️ Displays
 
-Unknown features are not marked as working merely because a driver package exists.
+| Feature | Status | Notes |
+| --- | :---: | --- |
+| Inner panel 120 Hz | ✅¹ | 60 / 120 Hz selectable in Settings |
+| Cover panel 120 Hz | ✅¹ | Own EDID (physical size), 100–125 % scaling |
+| Cover panel 60 Hz | ⚠️¹ | Works with both screens on; fails when the cover is the only screen |
+| Extend / single screen | ✅¹ | Inner only, cover only and both, from Settings |
+| Brightness | ✅¹ | Both panels |
+| Window drag / scrolling | ✅¹ | ~8.3 ms per frame (120 fps) with both screens active |
+| Rotation / fold detection | ❌ | Needs the hinge and orientation sensors |
 
-## Detailed status
+## 🎆 GPU and graphics APIs
 
-### 🎆 Display & GPU
+| Feature | Status | Notes |
+| --- | :---: | --- |
+| WDDM driver | ✅¹ | Starts with Windows (normal PnP order), "Adreno 660" with usage in Task Manager |
+| DWM / transparency | ✅¹ | Desktop, Acrylic and Mica composed on the GPU |
+| Browser | ✅¹ | Edge / Chrome GPU compositing; WebGL ~85–95 fps |
+| Direct3D 11 (native) | ✅¹ | Feature level 10_1, ARM64 and x64 |
+| Direct3D 9 / 10 / 11 | ✅¹ | DXVK 2.7.1 per game (feature level 11_1) |
+| Direct3D 12 | ✅¹ | vkd3d-proton 3.1 per game |
+| Direct3D 9 without DXVK | ❌ | The native driver has no D3D9 interface |
+| Vulkan | ✅¹ | Mesa turnip, system-wide Khronos loader (ARM64 + x64) |
+| OpenGL | ⚠️¹ | OpenGL 4.6 through zink; slower than Vulkan in windowed apps |
+| 32-bit x86 apps | ❌ | No 32-bit driver |
 
-| Feature | Notes | Status |
-| --- | --- | :---: |
-| Basic display output | Usable Windows display output | ✅ |
-| GMU firmware / HFI | Real firmware execution, version replies, table ACKs and core start verified | ✅ |
-| GPU command submission / DMA | First owned-buffer CP write completed in **225 µs** on 2026-10-19 | ✅ |
-| Hardware Direct3D / DXGI | Not verified; no accelerated WDDM capability claimed | ⚠️ |
-| Draw / readback | Not verified | ❔ |
-| Render fence / IRQ delivery | Not verified | ❔ |
-| Brightness / panel switching | Not verified | ❔ |
-| Long-term GPU stability | Not verified | ❔ |
+Measured on the development unit: SuperTuxKart 1.5 at 1280×720 — OpenGL 98.6 fps (ARM64) /
+75.5 fps (x64); Direct3D 9 via DXVK 113 fps (ARM64) / 112 fps (x64).
 
-The native CB0 + CB2 / LPAC experiment completed a real `CP_MEM_WRITE`, changing
-the token from `0x660bad00` to `0x660c0001`. Hardware RPTR, shadow RPTR and WPTR
-all reached 16. This proves command consumption and a private GPU memory write
-for that sequence. Rendering still requires synchronization, a real Draw/readback
-and hardware DXGI/Direct3D acceptance.
+## 👆 Touch
 
-The subsequent original `CP_SET_SECURE_MODE(0)` packet experiment was prepared
-and applied, but has no runtime result in the reviewed evidence. The functional
-UEFI baseline was later restored with a verified readback. That restoration
-does not establish a new GPU result.
+| Feature | Status | Notes |
+| --- | :---: | --- |
+| Inner display | ✅ | STM FTS SPI controller, own ARM64 driver |
+| Cover display | ❌ | The I2C controller and touch power come up, but every I2C transfer times out |
 
-### 👆 Touch
+## 📡 Connectivity
 
-| Feature | Notes | Status |
-| --- | --- | :---: |
-| Main display touch | Physical input confirmed by the operator; ARM64 STM SPI driver included | ✅ |
-| Cover display touch | Separate controller; not covered by the main-touch confirmation | ❔ |
-| Multitouch limits / gestures | No separate acceptance result recorded | ❔ |
+| Feature | Status | Notes |
+| --- | :---: | --- |
+| Wi-Fi | ✅ | UEFI PCIe bring-up + Qualcomm WLAN driver |
+| Bluetooth | ⚠️¹ | Radio on, BLE and classic scanning; pairing not verified |
+| Mobile data | ❔ | |
+| USB | ❔ | |
 
-### 🛜 Wi-Fi
+## 🔋 Power
 
-| Feature | Notes | Status |
-| --- | --- | :---: |
-| Connectivity | Operator-confirmed; UEFI PCIe/WLAN bring-up and pinned Qualcomm package included | ✅ |
-| 2.4 GHz / 5 GHz individually | No separate per-band acceptance result recorded | ❔ |
-| Wi-Fi Direct / Miracast | Not verified | ❔ |
-| Throughput / sleep-resume stability | Not verified | ❔ |
+| Feature | Status | Notes |
+| --- | :---: | --- |
+| Battery percentage | ✅¹ | Own battery driver (MAX77705 fuel gauge) |
+| Two battery packs | ⚠️¹ | The fuel gauge measures both packs as one; Windows shows a single battery |
+| Charging | ⚠️ | Keeps the firmware defaults; Windows does not control it |
+| Sleep / resume | ❔ | Hibernation is disabled |
 
-### ⌨️ Side buttons
+## 🔧 Other hardware
 
-| Feature | Notes | Status |
-| --- | --- | :---: |
-| Volume up | Operator-confirmed working | ✅ |
-| Volume down | Operator-confirmed working | ✅ |
-| Power | Operator-confirmed working | ✅ |
+| Feature | Status | Notes |
+| --- | :---: | --- |
+| Power / volume buttons | ✅ | ACPI Generic Buttons |
+| Storage (UFS) | ✅ | Windows boots from UFS |
+| Hinge sensor | ❌ | |
+| Other sensors | ❔ | |
+| Audio | ❔ | |
+| Cameras | ❔ | |
+| Fingerprint | ❔ | |
+| S Pen | ❔ | |
 
-The former 10-second UEFI pause is also confirmed removed.
+## Known issues
 
-### 🔧 Installation status
+- Cover display at 60 Hz while it is the only active screen stops updating.
+- OpenGL (zink) is noticeably slower than Vulkan / DXVK in small windows.
+- Cover touch does not work yet.
+- Drivers are signed with a development certificate: test signing must stay enabled.
 
-UEFI sources, ACPI tables, the main-touch driver, the PEP LMH fix and offline
-installation tools are included. The 200% display-scaling setup is included;
-reproduction on a clean installation remains pending. Installation and recovery
-guides are still incomplete.
-
-Experiment sources and evidence limits: [GPU research](../../research/gpu/README.md).
-Page layout based on the [Xiaomi Pad 5 project status](https://github.com/erdilS/Port-Windows-11-Xiaomi-Pad-5/blob/main/guide/English/status.md);
-the compatibility results here apply only to the Fold3.
+Page layout based on the [Xiaomi Pad 5 project status](https://github.com/erdilS/Port-Windows-11-Xiaomi-Pad-5/blob/main/guide/English/status.md).

@@ -1,22 +1,21 @@
 # Changelog
 
-## 2026-10-20 — Complete project status pages
+## 2026-11-17
 
-- Replace the English status pointer with a full hardware overview and detailed
-  feature tables, following the Xiaomi Pad 5 guide layout.
-- Expand Spanish status with matching tables and direct language navigation.
-- Link the README directly to Project status; retain STATE.md as a technical snapshot.
+- Status: Adreno 660 acceleration with our own WDDM driver and Mesa (DWM / transparency, browsers,
+  D3D9–12, Vulkan, OpenGL, ARM64 and x64), 120 Hz and brightness on both panels, independent
+  displays, Bluetooth radio and battery reporting — all on the development unit; the GPU package
+  is not released yet.
+- New guides: GPU driver and games, updating the UEFI, returning to TWRP.
+- New research notes: GPU / display bring-up and the automatic return to TWRP.
+- Added the battery driver source (`drivers/src/q2qbatt`) and the Bluetooth / battery SSDTs
+  (`uefi/acpi/ssdt`).
+- The LMH-fixed PEP is no longer redistributed: `Fetch-Dependencies.ps1` generates it from the BSP
+  and it is signed locally.
+- Removed `STATE.md` and the October GPU research snapshot (superseded).
 
-## 2026-10-20 — Initial GitHub snapshot
+## 2026-10-20
 
-- Publish the prepared q2q UEFI, ACPI, main-touch sources/packages, PEP LMH
-  component, pinned dependency fetcher and offline driver installer.
-- Record operator-confirmed working main touch, Wi-Fi and power/volume buttons.
-- Document removal of the UEFI 10-second pause and the 200% scaling setup.
-- Incorporate GPU research through 2026-10-19: GMU/HFI execution, retained native
-  memory domains and the first real CP token write with CB0 + CB2 in 225 µs.
-- Explicitly retain the unverified status of hardware DXGI/Direct3D,
-  Draw/readback, render fences, IRQ delivery and stability.
-- Record the subsequent secure-packet experiment as runtime-unverified and
-  the later verified restoration of the functional UEFI baseline.
-- Add English and Spanish status documents. Installation guides remain pending.
+- First public snapshot: q2q UEFI (Mu-Silicium patch, DSDT, buttons), main touch driver and
+  package, PEP LMH fix, pinned dependency fetcher and offline driver installer.
+- Main touch, Wi-Fi and power / volume buttons working; 200% scaling by default.

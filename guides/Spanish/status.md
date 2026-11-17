@@ -1,106 +1,58 @@
-# Estado del proyecto — 2026-10-20
+# Estado del proyecto
 
 [🏠 Inicio](../../README.md) | [English](../English/status.md) | **Español**
 
-Dispositivo: **Samsung Galaxy Z Fold3 SM-F926B / q2q**, Windows 11 ARM64.
+- Dispositivo: **Samsung Galaxy Z Fold3 — SM-F926B / q2q**
+- Última actualización: **2026-11-17**
+- Releases: todavía ninguna (versión de desarrollo)
 
-Drivers y UEFI: versión de desarrollo, todavía sin release numerada.
-La base UEFI funcional se restauró el 19 de octubre.
+✅ Funciona · ⚠️ Parcial · ❌ No funciona · ❔ Sin probar
 
-## Estado resumido
+Los resultados marcados con ¹ son de la unidad de desarrollo y necesitan el paquete del driver
+de la GPU y cambios de UEFI/ACPI que aún no están publicados.
 
-✅ Funciona · ⚠️ Parcial / en desarrollo · ❔ Sin verificar
+## Resumen
 
-| Función | Notas | Estado |
-| --- | --- | :---: |
-| 🪟 Arranque de Windows | Alcanza OOBE / escritorio en la unidad de desarrollo | ✅ |
-| 🖥️ Pantalla | Salida básica funcional; plegado y cambio de panel sin verificar | ⚠️ |
-| 🎆 GPU | Comandos reales completados; aceleración Direct3D / DXGI en desarrollo | ⚠️ |
-| 👆 Táctil principal | Funcionamiento confirmado por el operador | ✅ |
-| 👆 Táctil exterior | Controlador independiente; sin verificar | ❔ |
-| 🛜 Wi-Fi | Conectividad confirmada por el operador | ✅ |
-| ⌨️ Botones laterales | Funcionan encendido, subir y bajar volumen | ✅ |
-| 💾 Almacenamiento | Windows arranca desde UFS; estrés y E/S nativa en todos los LUN sin verificar | ⚠️ |
-| 🔊 Audio | Audio Windows sin verificar; los altavoces internos de esta unidad tienen una avería física | ❔ |
-| 🔋 Batería | Lectura de batería y gestión de energía sin verificar | ❔ |
-| 🔌 Carga | Comportamiento en Windows sin verificar | ❔ |
-| 🪵 USB | Modos host / OTG y dispositivo en Windows sin verificar | ❔ |
-| 🔵 Bluetooth | Sin verificar | ❔ |
-| 🖊️ Lápiz | Sin verificar | ❔ |
-| 📷 Cámaras | Sin verificar | ❔ |
-| 🧭 Sensores | Bisagra, rotación y demás sensores sin verificar | ❔ |
-| 🔒 Huella | Sin verificar | ❔ |
-| 💤 Suspensión / reanudación | Sin verificar | ❔ |
+| Función | Estado | Notas |
+| --- | :---: | --- |
+| Arranque / UEFI | ✅ | UEFI Mu-Silicium en `boot`, TWRP se conserva en `recovery` |
+| Pantalla interior | ✅¹ | 120 Hz, 60/120 Hz seleccionable, brillo |
+| Pantalla exterior | ⚠️¹ | 120 Hz y brillo; a 60 Hz falla si es la única pantalla activa |
+| Las dos pantallas | ✅¹ | Independientes (extender, solo interior, solo exterior) |
+| GPU (Adreno 660) | ✅¹ | Driver WDDM propio, GPU desde el primer fotograma, visible en el Administrador de tareas |
+| Transparencias / DWM | ✅¹ | Acrílico / Mica compuestos en la GPU |
+| Navegador | ✅¹ | Composición por GPU y WebGL en Edge / Chrome (~85–95 fps) |
+| Direct3D 11 nativo | ✅¹ | Nivel de funciones 10_1, ARM64 y x64 |
+| Direct3D 9–12 | ✅¹ | DXVK 2.7.1 / vkd3d-proton 3.1, instalados por juego |
+| Vulkan | ✅¹ | Mesa turnip, cargador Khronos de sistema |
+| OpenGL | ⚠️¹ | OpenGL 4.6 con zink; más lento que Vulkan en ventanas |
+| Apps y juegos x64 | ✅¹ | Emulación x64 sobre la misma GPU (ARM64EC); sin x86 de 32 bits |
+| Táctil interior | ✅ | Driver ARM64 propio (STM FTS por SPI) |
+| Táctil exterior | ❌ | El controlador I2C arranca, pero las transferencias caducan |
+| Wi-Fi | ✅ | |
+| Bluetooth | ⚠️¹ | Radio y búsqueda BLE/clásica; emparejamiento sin verificar |
+| Batería | ⚠️¹ | Porcentaje visible; las dos baterías se ven como una (un solo medidor) |
+| Carga | ⚠️ | Mantiene la configuración del firmware; Windows no la gestiona |
+| Botones | ✅ | Encendido, subir y bajar volumen |
+| Almacenamiento (UFS) | ✅ | |
+| Sensor de bisagra | ❌ | Sin detección de plegado ni rotación |
+| Otros sensores | ❔ | |
+| Audio | ❔ | |
+| USB | ❔ | |
+| Cámaras | ❔ | |
+| Datos móviles | ❔ | |
+| Huella / S Pen | ❔ | |
+| Suspensión | ❔ | Hibernación desactivada |
 
-Las confirmaciones de táctil, Wi-Fi y botones se reiteran por el usuario el
-20 de octubre. No se presentan como una nueva prueba física de esta sesión.
+Medido en la unidad de desarrollo: SuperTuxKart 1.5 a 1280×720 — OpenGL 98,6 fps (ARM64) /
+75,5 fps (x64); Direct3D 9 con DXVK 113 fps (ARM64) / 112 fps (x64). Arrastre de ventanas
+~8,3 ms por fotograma (120 fps) con las dos pantallas activas.
 
-## Estado detallado
+## Problemas conocidos
 
-### 🎆 Pantalla y GPU
+- La pantalla exterior a 60 Hz deja de actualizarse cuando es la única pantalla activa.
+- OpenGL (zink) es bastante más lento que Vulkan / DXVK en ventanas pequeñas.
+- El táctil exterior todavía no funciona.
+- Los drivers están firmados con un certificado de desarrollo: hay que mantener la firma de prueba activada.
 
-| Función | Notas | Estado |
-| --- | --- | :---: |
-| Salida básica de pantalla | Salida de Windows utilizable | ✅ |
-| Firmware GMU / HFI | Ejecución real, respuestas de versión, ACK de tablas y arranque del core verificados | ✅ |
-| Comandos / DMA GPU | Primer CP write a buffer propio completado en **225 µs** el 19 de octubre | ✅ |
-| Direct3D / DXGI por hardware | Sin verificar; no se anuncian capacidades WDDM aceleradas | ⚠️ |
-| Draw / readback | Sin verificar | ❔ |
-| Fence de render / entrega de IRQ | Sin verificar | ❔ |
-| Brillo / cambio de panel | Sin verificar | ❔ |
-| Estabilidad prolongada de GPU | Sin verificar | ❔ |
-
-El 19 de octubre se logró la primera escritura GPU real en un buffer propio
-desde Windows: `CP_MEM_WRITE` cambió el token de `0x660bad00` a `0x660c0001`
-en **225 µs**, con RPTR hardware, RPTR shadow y WPTR en 16. La cobertura de
-globales LPAC mediante la asociación nativa CB2 resolvió el bloqueo observado
-en el ensayo anterior con CB0 únicamente. GMU/HFI y la ruta original PIL/ZAP
-también cuentan con evidencia runtime.
-
-Esto acredita consumo de comandos y escritura DMA en ese ensayo. **No acredita
-todavía aceleración Direct3D/DXGI, Draw/readback, fence de render, entrega de
-IRQ ni estabilidad**. El siguiente ensayo, con el paquete original
-`CP_SET_SECURE_MODE(0)`, quedó aplicado y con arranque solicitado, pero sin
-resultado runtime recogido en la evidencia revisada. Después consta la
-restauración verificada de la UEFI funcional, sin reinicio en esa restauración.
-
-### 👆 Táctil
-
-| Función | Notas | Estado |
-| --- | --- | :---: |
-| Táctil principal | Entrada física confirmada; driver STM SPI ARM64 incluido | ✅ |
-| Táctil exterior | No incluido en la confirmación del táctil principal | ❔ |
-| Límites multitáctiles / gestos | Sin resultado de aceptación específico | ❔ |
-
-### 🛜 Wi-Fi
-
-| Función | Notas | Estado |
-| --- | --- | :---: |
-| Conectividad | Confirmada; inicialización PCIe/WLAN en UEFI y paquete Qualcomm fijado incluidos | ✅ |
-| 2,4 GHz / 5 GHz por separado | Sin resultado de aceptación por banda | ❔ |
-| Wi-Fi Direct / Miracast | Sin verificar | ❔ |
-| Rendimiento / estabilidad tras suspensión | Sin verificar | ❔ |
-
-### ⌨️ Botones laterales
-
-| Función | Notas | Estado |
-| --- | --- | :---: |
-| Subir volumen | Confirmado por el operador | ✅ |
-| Bajar volumen | Confirmado por el operador | ✅ |
-| Encendido | Confirmado por el operador | ✅ |
-
-También está confirmada la eliminación de la antigua pausa de 10 segundos de UEFI.
-
-### 🔧 Estado de la instalación
-
-Se incluyen fuentes y parches UEFI, driver táctil ARM64, corrección PEP LMH,
-dependencias fijadas por versión/hash y configuración de escalado al 200%.
-La reproducción del escalado en una instalación limpia sigue pendiente.
-Bluetooth, lápiz, cámaras, sensores, audio y suspensión no se dan por validados.
-
-Las guías de instalación y recuperación están incompletas; todavía no hay
-una publicación de instalación validada de principio a fin.
-
-Fuentes experimentales y límites de la evidencia: [investigación GPU](../../research/gpu/README.md).
-Organización basada en el [estado del proyecto Xiaomi Pad 5](https://github.com/erdilS/Port-Windows-11-Xiaomi-Pad-5/blob/main/guide/English/status.md);
-los resultados de compatibilidad anteriores corresponden únicamente al Fold3.
+El detalle por subsistema está en la [versión en inglés](../English/status.md).

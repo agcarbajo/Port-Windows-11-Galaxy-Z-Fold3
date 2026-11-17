@@ -13,6 +13,8 @@ partition (Android boot image header v3); `recovery` keeps TWRP.
 | `patches/mu-silicium-q2q.patch` | q2q changes to Mu-Silicium (see below) |
 | `acpi/DSDT.asl` | q2q DSDT (UFS, CPUs, GPIO, PEP, SMMU, touch SPI, PCIe/Wi-Fi) |
 | `acpi/buttons.asl` | Power / volume buttons (SPMI, PMIC, PMIC GPIO and Generic Buttons device), included by `DSDT.asl` |
+| `acpi/ssdt/SSDT-Q2QBTUR.asl` | Bluetooth UART and QCA6490 device (see below) |
+| `acpi/ssdt/SSDT-Q2QBATD.asl` | Battery I2C controllers and the device for [`q2qbatt`](../drivers/src/q2qbatt) (see below) |
 
 The patch contains:
 
@@ -46,3 +48,13 @@ The first run downloads ~5 GB of sources. Output in `uefi/out/`:
 - `q2q-uefi-<TARGET>.img`: boot image.
 - `q2q-uefi-<TARGET>-boot-partition.img`: the same image padded to the exact size of the
   `boot` partition (100663296 bytes).
+
+## Current state
+
+`build.py` reproduces the base UEFI: Windows boot, main touch, Wi-Fi, buttons and multi-LUN Mass
+Storage. The development unit runs a newer RELEASE image that also carries the ACPI changes for the
+GPU driver and the two SSDTs in `acpi/ssdt/`; those changes are not folded into `build.py` yet.
+
+The SSDTs compile with `iasl` and are added to the image as extra ACPI tables. Bluetooth also needs a
+PEP with corrected clock data for the UART (`gcc_qupv3_wrap2_s4_clk`): with the BSP PEP, opening the
+UART bug-checks (0x14E).

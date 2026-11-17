@@ -7,5 +7,3 @@
 *.cer binary
 *.inf -text
 
-# Preserve the research snapshot hashes across checkouts.
-research/gpu/source/* -text
